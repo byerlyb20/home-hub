@@ -1,0 +1,3 @@
+DROP TABLE Users;
+DROP TABLE Sessions;
+DROP TABLE Passkeys;
