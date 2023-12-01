@@ -1,7 +1,7 @@
-async function register() {
+async function register(username) {
     // Obtain a challenge from the server
     let startBody = {
-        username: document.getElementById('inputUsername').value
+        username: username
     }
     const startResponse = await fetch("auth/register/start", {
         method: "POST",
@@ -27,7 +27,7 @@ async function register() {
         publicKey: abtobase64(credential.response.getPublicKey()),
         alg: credential.response.getPublicKeyAlgorithm()
     }
-    console.log(JSON.stringify(finishParams))
+
     const finishResponse = await fetch("auth/register/finish", {
         method: "POST",
         headers: {
@@ -67,7 +67,6 @@ async function login() {
         },
         body: JSON.stringify(finishParams)
     })
-    console.log(await finishResponse.json())
 }
 
 async function logout() {
