@@ -7,6 +7,9 @@ function connect(path) {
 }
 
 class DatabaseError extends Error {
+
+    statusCode = 400
+
     constructor(sqliteErrorCode, ...params) {
         const message = `SQLite3 Database Error: ${sqliteErrorCode}`
         super(message, ...params)
