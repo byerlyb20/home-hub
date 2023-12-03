@@ -1,5 +1,6 @@
 const db = require('./dbController')
 const subtle = globalThis.crypto.subtle
+const Joi = require('joi')
 
 const SESSION_COOKIE_NAME = 'sessionToken'
 const APP_DISPLAY_NAME = 'Home Hub'
@@ -9,11 +10,13 @@ function config(hostname) {
     HOSTNAME = hostname
 }
 
+const sessionTokenCookieSchema = Joi.string().base64()
 const auth = async (req, res, next) => {
+    Joi.assert(req.cookies[SESSION_COOKIE_NAME], sessionTokenCookieSchema)
     let sessionToken = req.cookies[SESSION_COOKIE_NAME]
     if (sessionToken !== undefined) {
         const [userID, username, permissions, expires] =
-            await db.getSession(sessionToken)
+                await db.getSession(sessionToken)
         if (now() <= expires) {
             req.user = {
                 id: userID,
@@ -27,7 +30,11 @@ const auth = async (req, res, next) => {
     next()
 }
 
+const registerStartSchema = Joi.object({
+    username: Joi.string().required().alphanum().min(5).max(20)
+})
 const registerStart = async (req, res, next) => {
+    Joi.assert(req.body, registerStartSchema)
     let username = req.body.username
     let [challenge, challengeExpiry] = generateChallenge()
     
@@ -50,7 +57,15 @@ const registerStart = async (req, res, next) => {
     res.json(credentialIssueArgs)
 }
 
+const registerFinishSchema = Joi.object({
+    attestationObject: Joi.string().required().base64(),
+    userID: Joi.number().required().integer(),
+    keyID: Joi.string().required().base64({ paddingRequired: false, urlSafe: true }),
+    publicKey: Joi.string().required().base64(),
+    alg: Joi.number().required().integer()
+})
 const registerFinish = async (req, res, next) => {
+    Joi.assert(req.body, registerFinishSchema)
     let attestationObject = base64toab(req.body.attestationObject)
 
     // TODO: Check that challenge is unexpired and correct
@@ -77,7 +92,14 @@ const loginStart = async (req, res, next) => {
     res.json(credentialGetArgs)
 }
 
+const loginFinishSchema = Joi.object({
+    keyID: Joi.string().required().base64({ paddingRequired: false, urlSafe: true }),
+    signature: Joi.string().required().base64(),
+    authenticatorData: Joi.string().required().base64(),
+    clientDataJSON: Joi.string().required().base64()
+})
 const loginFinish = async (req, res, next) => {
+    Joi.assert(req.body, loginFinishSchema)
     // Lookup credential
     const [username, userID, publicKey] =
         await db.getPasskey(req.body.keyID) || []
@@ -135,12 +157,18 @@ const logout = async (req, res, next) => {
     res.json({})
 }
 
+const clientDataJSONSchema = Joi.object({
+    type: Joi.any().required().allow('webauthn.get'),
+    challenge: Joi.string().required().base64({ paddingRequired: false, urlSafe: true }),
+    origin: Joi.string().required()
+})
 async function calculateSignatureContents(authenticatorData, clientDataJSONBase64) {
     const authenticatorDataBuffer = Buffer.from(authenticatorData, 'base64')
 
     const clientDataBuffer = base64toab(clientDataJSONBase64)
     const clientDataHash = await subtle.digest('SHA-256', clientDataBuffer)
     const clientDataJSON = JSON.parse(Buffer.from(clientDataBuffer, 'utf8'))
+    Joi.assert(clientDataJSON, clientDataJSONSchema)
     const challenge = clientDataJSON.challenge
 
     const signatureContents = appendBuffer(authenticatorDataBuffer,
