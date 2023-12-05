@@ -11,9 +11,13 @@ function config(hostname) {
 }
 
 const sessionTokenCookieSchema = Joi.string().base64()
+const authorizationHeaderSchema = Joi.string().pattern(/Bearer [A-Za-z0-9-_=]+/)
 const auth = async (req, res, next) => {
-    Joi.assert(req.cookies[SESSION_COOKIE_NAME], sessionTokenCookieSchema)
     let sessionToken = req.cookies[SESSION_COOKIE_NAME]
+    let oauthToken = req.headers.authorization
+    Joi.assert(sessionToken, sessionTokenCookieSchema)
+    Joi.assert(oauthToken, authorizationHeaderSchema)
+
     if (sessionToken !== undefined) {
         const [userID, username, permissions, expires] =
                 await db.getSession(sessionToken) || []
@@ -25,6 +29,19 @@ const auth = async (req, res, next) => {
             }
         } else {
             res.clearCookie(SESSION_COOKIE_NAME)
+        }
+    } else if (oauthToken !== undefined) {
+        let oauthTokenRaw = base64toab(oauthToken.substring(7))
+        let oauthTokenHashRaw = await subtle.digest('SHA-256', oauthTokenRaw)
+        let oauthTokenHash = abtobase64(oauthTokenHashRaw)
+        const { Id, Username, Permissions, TokenPermissions, Expires } =
+            await db.getOAuthTokenInfo(oauthTokenHash) || {}
+        if (Expires !== undefined && now() <= Expires) {
+            req.user = {
+                id: Id,
+                username: Username,
+                permissions: Permissions & TokenPermissions
+            }
         }
     }
     next()

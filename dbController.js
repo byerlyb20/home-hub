@@ -120,6 +120,15 @@ const instateOAuthToken = (tokenHash, friendlyName, clientID, userID,
     VALUES (?, ?, ?, ?, ?, unixepoch(), ?);`, tokenHash, friendlyName,
     clientID, userID, permissions, expires)
 
+const getOAuthTokenInfo = ((tokenHash) => {
+    tokenHash = cleanseBase64(tokenHash)
+    return get(`SELECT Users.Id, Users.Username, Users.Permissions,
+                            Tokens.TokenPermissions, Tokens.Expires
+                            FROM TOKENS
+                            INNER JOIN Users ON Tokens.UserId = Users.Id
+                            WHERE TokenHash=?;`, tokenHash)
+})
+
 function cleanseBase64(a) {
     // Consider using the crypto sqlean extension (would require migration to better-sqlite3)
     // https://github.com/nalgeon/sqlean/blob/main/docs/install.md#install-nodejs
@@ -137,5 +146,6 @@ module.exports = {
     getSession,
     instateSession,
     deleteSession,
-    instateOAuthToken
+    instateOAuthToken,
+    getOAuthTokenInfo
 }
