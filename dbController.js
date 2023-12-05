@@ -113,7 +113,7 @@ const instateOAuthToken = (tokenHash, friendlyName, clientID, userID,
         FriendlyName,
         ClientId,
         UserId,
-        Permissions,
+        TokenPermissions,
         CreatedOn,
         Expires
     )

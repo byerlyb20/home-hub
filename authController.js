@@ -11,7 +11,7 @@ function config(hostname) {
 }
 
 const sessionTokenCookieSchema = Joi.string().base64()
-const authorizationHeaderSchema = Joi.string().pattern(/Bearer [A-Za-z0-9-_=]+/)
+const authorizationHeaderSchema = Joi.string().pattern(/Bearer [A-Za-z0-9+\/=]+$/)
 const auth = async (req, res, next) => {
     let sessionToken = req.cookies[SESSION_COOKIE_NAME]
     let oauthToken = req.headers.authorization
