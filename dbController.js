@@ -106,16 +106,19 @@ const instateSession = ((token, userID, expires, sessionID) => {
 const deleteSession = (token) =>
     run(`DELETE FROM Sessions WHERE Token=?`, token)
 
-const instateAPIToken = ((token, friendlyName, userID, expires) => {
-    token = cleanseBase64(token)
-    return run(`INSERT INTO Sessions (
-                    Token,
-                    FriendlyName,
-                    UserID,
-                    Expires
-                )
-                VALUES (?, ?, ?, ?);`, token, friendlyName, userID, expires)
-})
+const instateOAuthToken = (tokenHash, friendlyName, clientID, userID,
+    permissions, expires) => run(`
+    INSERT INTO Tokens (
+        TokenHash,
+        FriendlyName,
+        ClientId,
+        UserId,
+        Permissions,
+        CreatedOn,
+        Expires
+    )
+    VALUES (?, ?, ?, ?, ?, unixepoch(), ?);`, tokenHash, friendlyName,
+    clientID, userID, permissions, expires)
 
 function cleanseBase64(a) {
     // Consider using the crypto sqlean extension (would require migration to better-sqlite3)
@@ -134,5 +137,5 @@ module.exports = {
     getSession,
     instateSession,
     deleteSession,
-    instateAPIToken
+    instateOAuthToken
 }

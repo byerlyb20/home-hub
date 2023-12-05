@@ -16,8 +16,8 @@ const auth = async (req, res, next) => {
     let sessionToken = req.cookies[SESSION_COOKIE_NAME]
     if (sessionToken !== undefined) {
         const [userID, username, permissions, expires] =
-                await db.getSession(sessionToken)
-        if (now() <= expires) {
+                await db.getSession(sessionToken) || []
+        if (expires !== undefined && now() <= expires) {
             req.user = {
                 id: userID,
                 username: username,
@@ -163,10 +163,14 @@ const tokenSchema = Joi.object({
 const token = async (req, res, next) => {
     Joi.assert(req.body, tokenSchema)
     if (req.user !== undefined) {
-        const [token, expires] = generateAPIToken()
-        await db.instateAPIToken(token, req.body.name, req.user.id, expires)
+        const [token, tokenHash, expires] = await generateOAuthToken()
+        const tokenPermissions = 0
+        await db.instateOAuthToken(tokenHash, req.body.name, 0, req.user.id,
+            tokenPermissions, expires)
         res.json({
             token: token,
+            name: req.body.name,
+            permissions: 0,
             expires: expires
         })
     } else {
@@ -214,7 +218,7 @@ async function verify(publicKey, signature, signatureContents) {
 
 const generateChallenge = () => generateToken(32, 600)
 const generateSessionToken = () => generateToken(64, 86400)
-const generateAPIToken = () => generateToken(64, 31536000)
+const generateOAuthToken = () => generateHashedToken(64, 31536000)
 
 function now() {
     return Math.round(Date.now() / 1000)
@@ -224,6 +228,13 @@ function generateToken(len, validDuration) {
     let token = globalThis.crypto.getRandomValues(new Uint8Array(len))
     let expires = now() + validDuration
     return [abtobase64(token), expires]
+}
+
+async function generateHashedToken(len, validDuration) {
+    let token = globalThis.crypto.getRandomValues(new Uint8Array(len))
+    let tokenHash = await subtle.digest('SHA-256', token)
+    let expires = now() + validDuration
+    return [abtobase64(token), abtobase64(tokenHash), expires]
 }
 
 function abtobase64(ab) {

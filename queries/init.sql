@@ -16,10 +16,20 @@ CREATE TABLE Passkeys (
 
 CREATE TABLE Sessions (
     Token TEXT,
-    FriendlyName TEXT,
     UserId INT,
     Expires INT,
     Challenge TEXT,
     ChallengeExpiry INT,
+    FOREIGN KEY(UserId) REFERENCES Users(Id)
+);
+
+CREATE TABLE Tokens (
+    TokenHash TEXT,
+    FriendlyName TEXT,
+    ClientId INT,
+    UserId INT,
+    Permissions INT DEFAULT 0,
+    CreatedOn INT,
+    Expires INT,
     FOREIGN KEY(UserId) REFERENCES Users(Id)
 );
