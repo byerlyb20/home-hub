@@ -78,6 +78,30 @@ async function logout() {
     })
 }
 
+async function user() {
+    const userResponse = await fetch("user", {
+        method: "GET",
+        headers: {
+            "Content-Type": "application/json"
+        }
+    })
+    return await userResponse.json()
+}
+
+async function createAPIToken(friendlyName) {
+    let body = {
+        name: friendlyName
+    }
+    const response = await fetch("auth/token", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+    })
+    return response.json()
+}
+
 function abtobase64(ab) {
     var binary = ''
     var bytes = new Uint8Array(ab)

@@ -16,6 +16,7 @@ CREATE TABLE Passkeys (
 
 CREATE TABLE Sessions (
     Token TEXT,
+    FriendlyName TEXT,
     UserId INT,
     Expires INT,
     Challenge TEXT,

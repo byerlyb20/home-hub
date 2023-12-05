@@ -106,6 +106,17 @@ const instateSession = ((token, userID, expires, sessionID) => {
 const deleteSession = (token) =>
     run(`DELETE FROM Sessions WHERE Token=?`, token)
 
+const instateAPIToken = ((token, friendlyName, userID, expires) => {
+    token = cleanseBase64(token)
+    return run(`INSERT INTO Sessions (
+                    Token,
+                    FriendlyName,
+                    UserID,
+                    Expires
+                )
+                VALUES (?, ?, ?, ?);`, token, friendlyName, userID, expires)
+})
+
 function cleanseBase64(a) {
     // Consider using the crypto sqlean extension (would require migration to better-sqlite3)
     // https://github.com/nalgeon/sqlean/blob/main/docs/install.md#install-nodejs
@@ -122,5 +133,6 @@ module.exports = {
     getSessionID,
     getSession,
     instateSession,
-    deleteSession
+    deleteSession,
+    instateAPIToken
 }

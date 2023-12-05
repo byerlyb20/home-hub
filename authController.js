@@ -157,6 +157,23 @@ const logout = async (req, res, next) => {
     res.json({})
 }
 
+const tokenSchema = Joi.object({
+    name: Joi.string().required().alphanum().max(30)
+})
+const token = async (req, res, next) => {
+    Joi.assert(req.body, tokenSchema)
+    if (req.user !== undefined) {
+        const [token, expires] = generateAPIToken()
+        await db.instateAPIToken(token, req.body.name, req.user.id, expires)
+        res.json({
+            token: token,
+            expires: expires
+        })
+    } else {
+        res.status(401).end()
+    }
+}
+
 const clientDataJSONSchema = Joi.object({
     type: Joi.any().required().allow('webauthn.get'),
     challenge: Joi.string().required().base64({ paddingRequired: false, urlSafe: true }),
@@ -197,6 +214,7 @@ async function verify(publicKey, signature, signatureContents) {
 
 const generateChallenge = () => generateToken(32, 600)
 const generateSessionToken = () => generateToken(64, 86400)
+const generateAPIToken = () => generateToken(64, 31536000)
 
 function now() {
     return Math.round(Date.now() / 1000)
@@ -255,5 +273,6 @@ module.exports = {
     registerFinish,
     loginStart,
     loginFinish,
-    logout
+    logout,
+    token
 }
