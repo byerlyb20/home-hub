@@ -40,7 +40,8 @@ app.post('/auth/register/finish', errorWrapper(auth.registerFinish))
 app.post('/auth/login/start', errorWrapper(auth.loginStart))
 app.post('/auth/login/finish', errorWrapper(auth.loginFinish))
 app.post('/auth/logout', errorWrapper(auth.logout))
-app.post('/auth/token', errorWrapper(auth.token))
+app.post('/auth/tokenExchange', errorWrapper(auth.tokenExchange))
+app.all('/auth/login/landing', errorWrapper(auth.landing))
 
 app.post('/api/v1/toggle/', (req, res) => {
     var bay = req.body.bay || 0

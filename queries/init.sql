@@ -33,3 +33,12 @@ CREATE TABLE Tokens (
     Expires INT,
     FOREIGN KEY(UserId) REFERENCES Users(Id)
 );
+
+CREATE TABLE Authorizations (
+    TokenHash TEXT,
+    Type INT DEFAULT 0,
+    UserId INT,
+    Permissions INT,
+    Expires INT DEFAULT (unixepoch() + 600),
+    FOREIGN KEY(UserId) REFERENCES Users(Id)
+);

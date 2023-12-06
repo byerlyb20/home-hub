@@ -174,15 +174,21 @@ const logout = async (req, res, next) => {
     res.json({})
 }
 
-const tokenSchema = Joi.object({
-    name: Joi.string().required().alphanum().max(30)
-})
-const token = async (req, res, next) => {
-    Joi.assert(req.body, tokenSchema)
-    if (req.user !== undefined) {
-        const [token, tokenHash, expires] = await generateOAuthToken()
+const tokenQuerySchema = Joi.object({
+    name: Joi.string().alphanum().max(30),
+    client_id: Joi.number().integer(),
+    client_secret: Joi.string(),
+    grant_type: Joi.any().allow('authorization_code', 'refresh_token'),
+    redirect_uri: Joi.string().uri(),
+    refresh_token: Joi.string().base64({ urlSafe: true })
+}).and('client_id', 'client_secret', 'grant_type')
+// TODO: Require refresh_token when grant_type is refresh_token
+const tokenExchange = async (req, res, next) => {
+    Joi.assert(req.query, tokenQuerySchema)
+    if (req.query.name !== undefined && req.user !== undefined) {
+        const [token, tokenHash, expires] = await generateOAuthLongLiveToken()
         const tokenPermissions = 0
-        await db.instateOAuthToken(tokenHash, req.body.name, 0, req.user.id,
+        await db.instateOAuthToken(tokenHash, req.query.name, 0, req.user.id,
             tokenPermissions, expires)
         res.json({
             token: token,
@@ -190,8 +196,34 @@ const token = async (req, res, next) => {
             permissions: 0,
             expires: expires
         })
-    } else {
+    } else if (req.user === undefined) {
         res.status(401).end()
+    } else {
+        // TODO: Check refresh_token and issue OAuth token
+    }
+}
+
+const landingQuerySchema = Joi.object({
+    client_id: Joi.number().integer(),
+    redirect_uri: Joi.string().uri(),
+    state: Joi.string(),
+    scope: Joi.string(),
+    response_type: Joi.any().allow('code'),
+    user_locale: Joi.string()
+})
+const landing = async (req, res) => {
+    Joi.assert(req.query, landingQuerySchema)
+
+    if (req.query.response_type === 'code' && req.user !== undefined) {
+        const [token, tokenHash, expires] = await generateAuthorizationToken()
+        const tokenPermissions = 0
+        await db.instateOneTimeAuthorization(tokenHash,
+            db.AUTHORIZATION_TYPE_TOKEN, req.user.id, tokenPermissions)
+        
+        const redirectURI = new URL(req.query.redirect_uri)
+        redirectURI.searchParams.set('code', token)
+        redirectURI.searchParams.set('state', req.query.state)
+        res.redirect(redirectURI)
     }
 }
 
@@ -235,7 +267,9 @@ async function verify(publicKey, signature, signatureContents) {
 
 const generateChallenge = () => generateToken(32, 600)
 const generateSessionToken = () => generateToken(64, 86400)
-const generateOAuthToken = () => generateHashedToken(64, 31536000)
+const generateOAuthLongLiveToken = () => generateHashedToken(64, 31536000)
+const generateOAuthShortLiveToken = () => generateHashedToken(64, 86400)
+const generateAuthorizationToken = () => generateHashedToken(32, 600)
 
 function now() {
     return Math.round(Date.now() / 1000)
@@ -302,5 +336,6 @@ module.exports = {
     loginStart,
     loginFinish,
     logout,
-    token
+    tokenExchange,
+    landing
 }

@@ -92,7 +92,7 @@ async function createAPIToken(friendlyName) {
     let body = {
         name: friendlyName
     }
-    const response = await fetch("auth/token", {
+    const response = await fetch("auth/tokenExchange", {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
