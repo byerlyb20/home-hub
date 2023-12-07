@@ -14,7 +14,6 @@ const HOSTNAME = process.env.HOSTNAME
 const PORT = process.env.PORT
 
 db.connect('home.db')
-auth.config(HOSTNAME)
 
 // Error status codes are passed on by Express as the HTTP response status
 Joi.ValidationError.prototype.statusCode = 400
@@ -27,7 +26,7 @@ const errorWrapper = (middleware) => (req, res, next) =>
 app.use(cookieParser())
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
-app.use(errorWrapper(auth.auth))
+app.use(auth.authState)
 
 app.use(express.static('web'))
 
@@ -35,13 +34,7 @@ app.listen(PORT, () => {
     console.log(`Listening on port ${PORT}`)
 })
 
-app.post('/auth/register/start', errorWrapper(auth.registerStart))
-app.post('/auth/register/finish', errorWrapper(auth.registerFinish))
-app.post('/auth/login/start', errorWrapper(auth.loginStart))
-app.post('/auth/login/finish', errorWrapper(auth.loginFinish))
-app.post('/auth/logout', errorWrapper(auth.logout))
-app.post('/auth/tokenExchange', errorWrapper(auth.tokenExchange))
-app.all('/auth/login/landing', errorWrapper(auth.landing))
+app.use('/auth', auth.authRouter(HOSTNAME))
 
 app.post('/api/v1/toggle/', (req, res) => {
     var bay = req.body.bay || 0

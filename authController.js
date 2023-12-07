@@ -1,18 +1,36 @@
-const db = require('./dbController')
+const express = require('express')
 const subtle = globalThis.crypto.subtle
 const Joi = require('joi')
+
+const db = require('./dbController')
 
 const SESSION_COOKIE_NAME = 'sessionToken'
 const APP_DISPLAY_NAME = 'Home Hub'
 var HOSTNAME
 
-function config(hostname) {
+const authRouter = (hostname) => {
+    // Setting the hostname globally is probably poor design; look for a better
+    // way to pass in configuration variables
     HOSTNAME = hostname
+    const router = express.Router()
+
+    router.post('/register/start', registerStart)
+    router.post('/register/finish', registerFinish)
+
+    router.post('/login/start', loginStart)
+    router.post('/login/finish', loginFinish)
+
+    router.post('/logout', logout)
+
+    router.post('/oauth/tokenExchange', tokenExchange)
+    router.post('/oauth/authorization', oauthAuthorization)
+
+    return router
 }
 
 const sessionTokenCookieSchema = Joi.string().base64()
 const authorizationHeaderSchema = Joi.string().pattern(/Bearer [A-Za-z0-9+\/=]+$/)
-const auth = async (req, res, next) => {
+const authState = async (req, res, next) => {
     let sessionToken = req.cookies[SESSION_COOKIE_NAME]
     let oauthToken = req.headers.authorization
     Joi.assert(sessionToken, sessionTokenCookieSchema)
@@ -203,27 +221,24 @@ const tokenExchange = async (req, res, next) => {
     }
 }
 
-const landingQuerySchema = Joi.object({
-    client_id: Joi.number().integer(),
-    redirect_uri: Joi.string().uri(),
-    state: Joi.string(),
-    scope: Joi.string(),
-    response_type: Joi.any().allow('code'),
-    user_locale: Joi.string()
+const oauthAuthorizationSchema = Joi.object({
+    clientID: Joi.number().integer(),
+    scope: Joi.string()
 })
-const landing = async (req, res) => {
-    Joi.assert(req.query, landingQuerySchema)
+const oauthAuthorization = async (req, res) => {
+    Joi.assert(req.body, oauthAuthorizationSchema)
 
-    if (req.query.response_type === 'code' && req.user !== undefined) {
+    if (req.user !== undefined) {
         const [token, tokenHash, expires] = await generateAuthorizationToken()
         const tokenPermissions = 0
         await db.instateOneTimeAuthorization(tokenHash,
             db.AUTHORIZATION_TYPE_TOKEN, req.user.id, tokenPermissions)
         
-        const redirectURI = new URL(req.query.redirect_uri)
-        redirectURI.searchParams.set('code', token)
-        redirectURI.searchParams.set('state', req.query.state)
-        res.redirect(redirectURI)
+        res.json({
+            code: token
+        })
+    } else {
+        res.status(401).end()
     }
 }
 
@@ -329,13 +344,6 @@ function derToRaw(signature) {
 }
 
 module.exports = {
-    config,
-    auth,
-    registerStart,
-    registerFinish,
-    loginStart,
-    loginFinish,
-    logout,
-    tokenExchange,
-    landing
+    authState,
+    authRouter
 }

@@ -102,6 +102,21 @@ async function createAPIToken(friendlyName) {
     return response.json()
 }
 
+async function getOAuthAuthCode(clientID, scope) {
+    let body = {
+        clientID: clientID,
+        scope: scope
+    }
+    const response = await fetch("auth/oauth/authorization", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+    })
+    return response.json()
+}
+
 function abtobase64(ab) {
     var binary = ''
     var bytes = new Uint8Array(ab)
