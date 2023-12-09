@@ -3,6 +3,7 @@ const subtle = globalThis.crypto.subtle
 const Joi = require('joi')
 
 const db = require('./dbController')
+const base64 = require('./base64')
 
 const SESSION_COOKIE_NAME = 'sessionToken'
 const APP_DISPLAY_NAME = 'Home Hub'
@@ -49,7 +50,7 @@ const authState = async (req, res, next) => {
             res.clearCookie(SESSION_COOKIE_NAME)
         }
     } else if (oauthToken !== undefined) {
-        const oauthTokenHash = base64Hash(oauthToken.substring(7))
+        const oauthTokenHash = await base64Hash(oauthToken.substring(7))
         const { Id, Username, Permissions, TokenPermissions, Expires } =
             await db.getOAuthTokenInfo(oauthTokenHash) || {}
         if (Expires !== undefined && now() <= Expires) {
@@ -71,7 +72,7 @@ const registerStart = async (req, res, next) => {
     let username = req.body.username
     let [challenge, challengeExpiry] = generateChallenge()
     
-    // TODO: Handle username conflicts
+    // TODO: Handle username conflicts gracefully
     let userID = await db.createNewUser(username, challenge, challengeExpiry)
 
     // Structured per https://developer.mozilla.org/en-US/docs/Web/API/CredentialsContainer/create#publickey_object_structure
@@ -104,8 +105,8 @@ const registerFinish = async (req, res, next) => {
     // TODO: Check that challenge is unexpired and correct
     let [challenge, challengeExpiry] = await db.getUserChallenge(req.body.userID) || []
 
-    await db.savePasskey(req.body.keyID, req.body.userID, req.body.publicKey,
-        now())
+    await db.savePasskey(base64.clean(req.body.keyID), req.body.userID,
+        req.body.publicKey)
 
     res.json({}).end()
 }
@@ -135,7 +136,7 @@ const loginFinish = async (req, res, next) => {
     Joi.assert(req.body, loginFinishSchema)
     // Lookup credential
     const [username, userID, publicKey] =
-        await db.getPasskey(req.body.keyID) || []
+        await db.getPasskey(base64.clean(req.body.keyID)) || []
     if (publicKey === undefined) {
         console.log('Unrecognized credential ID')
         res.status(401).end()
@@ -200,13 +201,13 @@ const tokenQuerySchema = Joi.object({
     .and('grant_type', 'client_id', 'client_secret')
     .when(Joi.object({ grant_type: 'authorization_code' }).unknown(), {
         then: Joi.object({
-            code: Joi.string().base64({ urlSafe: true, paddingRequired: false }).required(),
+            code: Joi.string().base64().required(),
             redirect_uri: Joi.string().uri().required()
         })
     })
     .when(Joi.object({ grant_type: 'refresh_token' }).unknown(), {
         then: Joi.object({
-            refresh_token: Joi.string().base64({ urlSafe: true }).required()
+            refresh_token: Joi.string().base64().required()
         })
     })
 const tokenExchange = async (req, res, next) => {
@@ -289,7 +290,7 @@ async function calculateSignatureContents(authenticatorData, clientDataJSONBase6
     const clientDataHash = await subtle.digest('SHA-256', clientDataBuffer)
     const clientDataJSON = JSON.parse(Buffer.from(clientDataBuffer, 'utf8'))
     Joi.assert(clientDataJSON, clientDataJSONSchema)
-    const challenge = clientDataJSON.challenge
+    const challenge = base64.clean(clientDataJSON.challenge)
 
     const signatureContents = appendBuffer(authenticatorDataBuffer,
         clientDataHash)

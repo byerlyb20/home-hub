@@ -52,16 +52,14 @@ const getUserChallenge = (async (userID) => {
     return [row['Challenge'], row['ChallengeExpiry']]
 })
 
-const savePasskey = ((passkeyID, userID, publicKey, createdOn) =>
+const savePasskey = ((passkeyID, userID, publicKey) =>
     run(`INSERT INTO Passkeys (
             Id,
             UserId,
-            PublicKey,
-            CreatedOn)
-        VALUES (?, ?, ?, ?);`, passkeyID, userID, publicKey, createdOn))
+            PublicKey)
+        VALUES (?, ?, ?);`, passkeyID, userID, publicKey))
 
 const saveSessionChallenge = ((challenge, challengeExpiry) => {
-    challenge = cleanseBase64(challenge)
     return run(`INSERT INTO Sessions (
             Challenge,
             ChallengeExpiry)
@@ -78,7 +76,6 @@ const getPasskey = (async (passkeyID) => {
 })
 
 const getSessionID = (async (challenge) => {
-    challenge = cleanseBase64(challenge)
     let row = await get(`SELECT rowid, ChallengeExpiry
                          FROM Sessions
                          WHERE Challenge=?;`, challenge)
@@ -87,7 +84,6 @@ const getSessionID = (async (challenge) => {
 })
 
 const getSession = (async (token) => {
-    token = cleanseBase64(token)
     let row = await get(`SELECT Users.Id, Users.Username, Users.Permissions, Sessions.Expires
                          FROM Sessions
                          INNER JOIN Users ON Sessions.UserId = Users.Id
@@ -96,12 +92,10 @@ const getSession = (async (token) => {
     return [row['Id'], row['Username'], row['Permissions'], row['Expires']]
 })
 
-const instateSession = ((token, userID, expires, sessionID) => {
-    token = cleanseBase64(token)
-    return run(`UPDATE Sessions
-        SET Challenge=NULL, ChallengeExpiry=NULL, Token=?, UserId=?, Expires=?
-        WHERE rowid=?`, token, userID, expires, sessionID)
-})
+const instateSession = (token, userID, expires, sessionID) =>
+    run(`UPDATE Sessions
+         SET Challenge=NULL, ChallengeExpiry=NULL, Token=?, UserId=?, Expires=?
+         WHERE rowid=?`, token, userID, expires, sessionID)
 
 const deleteSession = (token) =>
     run(`DELETE FROM Sessions WHERE Token=?`, token)
@@ -113,21 +107,18 @@ const instateOAuthToken = (tokenHash, friendlyName, clientID, userID,
         FriendlyName,
         ClientId,
         UserId,
-        TokenPermissions,
-        CreatedOn,
+        TokenPermissions
         Expires
     )
-    VALUES (?, ?, ?, ?, ?, unixepoch(), ?);`, tokenHash, friendlyName,
+    VALUES (?, ?, ?, ?, ?, ?);`, tokenHash, friendlyName,
     clientID, userID, permissions, expires)
 
-const getOAuthTokenInfo = ((tokenHash) => {
-    tokenHash = cleanseBase64(tokenHash)
-    return get(`SELECT Users.Id, Users.Username, Users.Permissions,
-                            Tokens.TokenPermissions, Tokens.Expires
-                            FROM TOKENS
-                            INNER JOIN Users ON Tokens.UserId = Users.Id
-                            WHERE TokenHash=?;`, tokenHash)
-})
+const getOAuthTokenInfo = (tokenHash) =>
+    get(`SELECT Users.Id, Users.Username, Users.Permissions,
+         Tokens.TokenPermissions, Tokens.Expires
+         FROM TOKENS
+         INNER JOIN Users ON Tokens.UserId = Users.Id
+         WHERE TokenHash=?;`, tokenHash)
 
 const AUTHORIZATION_TYPE_TOKEN = 0
 const AUTHORIZATION_TYPE_PASSKEY = 1
@@ -148,12 +139,6 @@ const lookupAuthorization = (tokenHash) =>
 const deleteAuthorization = (tokenHash) =>
     run(`DELETE FROM Authorizations
          WHERE TokenHash=?;`, tokenHash)
-
-function cleanseBase64(a) {
-    // Consider using the crypto sqlean extension (would require migration to better-sqlite3)
-    // https://github.com/nalgeon/sqlean/blob/main/docs/install.md#install-nodejs
-    return Buffer.from(a, 'base64').toString('base64')
-}
 
 module.exports = {
     connect,
