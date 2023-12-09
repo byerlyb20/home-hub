@@ -10,7 +10,7 @@ CREATE TABLE Passkeys (
     Id TEXT PRIMARY KEY,
     UserId INT NOT NULL,
     PublicKey TEXT NOT NULL,
-    CreatedOn INT DEFAULT unixepoch(),
+    CreatedOn INT DEFAULT (unixepoch()),
     FOREIGN KEY(UserId) REFERENCES Users(Id)
 );
 
@@ -29,8 +29,8 @@ CREATE TABLE Tokens (
     ClientId INT,
     UserId INT NOT NULL,
     Permissions INT DEFAULT 0,
-    CreatedOn INT DEFAULT unixepoch(),
-    Expires INT NOT NULL
+    CreatedOn INT DEFAULT (unixepoch()),
+    Expires INT NOT NULL,
     FOREIGN KEY(UserId) REFERENCES Users(Id)
 );
 
