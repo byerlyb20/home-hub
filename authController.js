@@ -49,9 +49,7 @@ const authState = async (req, res, next) => {
             res.clearCookie(SESSION_COOKIE_NAME)
         }
     } else if (oauthToken !== undefined) {
-        let oauthTokenRaw = base64toab(oauthToken.substring(7))
-        let oauthTokenHashRaw = await subtle.digest('SHA-256', oauthTokenRaw)
-        let oauthTokenHash = abtobase64(oauthTokenHashRaw)
+        const oauthTokenHash = base64Hash(oauthToken.substring(7))
         const { Id, Username, Permissions, TokenPermissions, Expires } =
             await db.getOAuthTokenInfo(oauthTokenHash) || {}
         if (Expires !== undefined && now() <= Expires) {
@@ -193,17 +191,56 @@ const logout = async (req, res, next) => {
 }
 
 const tokenQuerySchema = Joi.object({
-    name: Joi.string().alphanum().max(30),
-    client_id: Joi.number().integer(),
-    client_secret: Joi.string(),
-    grant_type: Joi.any().allow('authorization_code', 'refresh_token'),
-    redirect_uri: Joi.string().uri(),
-    refresh_token: Joi.string().base64({ urlSafe: true })
-}).and('client_id', 'client_secret', 'grant_type')
-// TODO: Require refresh_token when grant_type is refresh_token
+        name: Joi.string().alphanum().max(30),
+        grant_type: Joi.string().valid('authorization_code', 'refresh_token'),
+        client_id: Joi.number().integer(),
+        client_secret: Joi.string()
+    })
+    .xor('name', 'grant_type')
+    .and('grant_type', 'client_id', 'client_secret')
+    .when(Joi.object({ grant_type: 'authorization_code' }).unknown(), {
+        then: Joi.object({
+            code: Joi.string().base64({ urlSafe: true, paddingRequired: false }).required(),
+            redirect_uri: Joi.string().uri().required()
+        })
+    })
+    .when(Joi.object({ grant_type: 'refresh_token' }).unknown(), {
+        then: Joi.object({
+            refresh_token: Joi.string().base64({ urlSafe: true }).required()
+        })
+    })
 const tokenExchange = async (req, res, next) => {
     Joi.assert(req.query, tokenQuerySchema)
-    if (req.query.name !== undefined && req.user !== undefined) {
+    if (req.query.name === undefined) {
+        const tokenHash = await base64Hash(req.query.code)
+        // { Type, UserId, Permissions, Expires }
+        const authorization = await db.lookupAuthorization(tokenHash)
+        await db.deleteAuthorization(tokenHash)
+
+        if (authorization === undefined || now() >= authorization.Expires) {
+            res.status(401).end()
+            return
+        }
+
+        const [refreshToken, refreshHash, refreshExpires] =
+            await generateOAuthLongLiveToken()
+        const refreshPermissions = authorization.Permissions
+        await db.instateOAuthToken(refreshHash, '', req.query.client_id,
+            authorization.UserId, refreshPermissions, refreshExpires)
+
+        const [accessToken, accessHash, accessExpires] =
+            await generateOAuthShortLiveToken()
+        const accessPermissions = authorization.Permissions
+        await db.instateOAuthToken(accessHash, '', req.query.client_id,
+            authorization.UserId, accessPermissions, accessExpires)
+
+        res.json({
+            token_type: 'Bearer',
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            expires_in: 86400
+        })
+    } else if (req.user !== undefined) {
         const [token, tokenHash, expires] = await generateOAuthLongLiveToken()
         const tokenPermissions = 0
         await db.instateOAuthToken(tokenHash, req.query.name, 0, req.user.id,
@@ -214,10 +251,8 @@ const tokenExchange = async (req, res, next) => {
             permissions: 0,
             expires: expires
         })
-    } else if (req.user === undefined) {
-        res.status(401).end()
     } else {
-        // TODO: Check refresh_token and issue OAuth token
+        res.status(401).end()
     }
 }
 
@@ -243,7 +278,7 @@ const oauthAuthorization = async (req, res) => {
 }
 
 const clientDataJSONSchema = Joi.object({
-    type: Joi.any().required().allow('webauthn.get'),
+    type: Joi.any().required().valid('webauthn.get'),
     challenge: Joi.string().required().base64({ paddingRequired: false, urlSafe: true }),
     origin: Joi.string().required()
 })
@@ -309,6 +344,12 @@ function abtobase64(ab) {
 
 function base64toab(base64) {
     return Buffer.from(base64, 'base64')
+}
+
+async function base64Hash(base64) {
+    let raw = base64toab(base64)
+    let hashRaw = await subtle.digest('SHA-256', raw)
+    return abtobase64(hashRaw)
 }
 
 function appendBuffer(buffer1, buffer2) {

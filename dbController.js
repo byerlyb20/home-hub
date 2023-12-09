@@ -140,6 +140,15 @@ const instateOneTimeAuthorization = (tokenHash, type, userID, permissions) =>
             Permissions)
          VALUES (?, ?, ?, ?);`, tokenHash, type, userID, permissions)
 
+const lookupAuthorization = (tokenHash) =>
+    get(`SELECT Type, UserId, Permissions, Expires
+         FROM Authorizations
+         WHERE TokenHash=?;`, tokenHash)
+
+const deleteAuthorization = (tokenHash) =>
+    run(`DELETE FROM Authorizations
+         WHERE TokenHash=?;`, tokenHash)
+
 function cleanseBase64(a) {
     // Consider using the crypto sqlean extension (would require migration to better-sqlite3)
     // https://github.com/nalgeon/sqlean/blob/main/docs/install.md#install-nodejs
@@ -161,5 +170,7 @@ module.exports = {
     getOAuthTokenInfo,
     AUTHORIZATION_TYPE_TOKEN,
     AUTHORIZATION_TYPE_PASSKEY,
-    instateOneTimeAuthorization
+    instateOneTimeAuthorization,
+    lookupAuthorization,
+    deleteAuthorization
 }
