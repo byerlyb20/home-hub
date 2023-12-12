@@ -27,11 +27,13 @@ CREATE TABLE Tokens (
     TokenHash TEXT PRIMARY KEY,
     FriendlyName TEXT,
     ClientId INT,
+    ParentToken TEXT,
     UserId INT NOT NULL,
     Permissions INT DEFAULT 0,
     CreatedOn INT DEFAULT (unixepoch()),
     Expires INT NOT NULL,
-    FOREIGN KEY(UserId) REFERENCES Users(Id)
+    FOREIGN KEY(UserId) REFERENCES Users(Id),
+    FOREIGN KEY(ParentToken) REFERENCES Tokens(TokenHash)
 );
 
 CREATE TABLE Authorizations (

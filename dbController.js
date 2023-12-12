@@ -97,18 +97,19 @@ const instateSession = (token, userID, expires, sessionID) =>
 const deleteSession = (token) =>
     run(`DELETE FROM Sessions WHERE Token=?`, token)
 
-const instateOAuthToken = (tokenHash, friendlyName, clientID, userID,
-    permissions, expires) => run(`
+const instateOAuthToken = (tokenHash, friendlyName, clientID, parentToken,
+    userID, permissions, expires) => run(`
     INSERT INTO Tokens (
         TokenHash,
         FriendlyName,
         ClientId,
+        ParentToken,
         UserId,
         Permissions,
         Expires
     )
-    VALUES (?, ?, ?, ?, ?, ?);`, tokenHash, friendlyName,
-    clientID, userID, permissions, expires)
+    VALUES (?, ?, ?, ?, ?, ?, ?);`, tokenHash, friendlyName, clientID,
+    parentToken, userID, permissions, expires)
 
 const getOAuthTokenInfo = (tokenHash) =>
     get(`SELECT Users.Id, Users.Username, Tokens.Permissions,

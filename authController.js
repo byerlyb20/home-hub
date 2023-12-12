@@ -261,7 +261,7 @@ const tokenExchange = async (req, res, next) => {
         const refreshToken = await createRefreshToken(authorization.UserId,
             req.query.client_id)
         const accessToken = await createAccessToken(authorization.UserId,
-            req.query.client_id)
+            req.query.client_id, refreshToken.hash)
 
         res.json({
             token_type: 'Bearer',
@@ -345,17 +345,20 @@ const generateSessionToken = () => generateToken(64, 86400)
 const generateAuthorizationToken = () => generateHashedToken(32, 600)
 
 const createAPIToken = (user, name) =>
-    createToken(PERMISSIONS_API_TOKEN, user, name, CLIENT_ID_SELF, 64, 31536000)
+    createToken(PERMISSIONS_API_TOKEN, user, name, CLIENT_ID_SELF, null, 64,
+        31536000)
 const createRefreshToken = (user, clientID) =>
-    createToken(PERMISSIONS_REFRESH_TOKEN, user, '', clientID, 64, 31536000)
-const createAccessToken = (user, clientID) =>
-    createToken(PERMISSIONS_ACCESS_TOKEN, user, '', clientID, 64, 86400)
+    createToken(PERMISSIONS_REFRESH_TOKEN, user, '', clientID, null, 64,
+        31536000)
+const createAccessToken = (user, clientID, parentTokenHash) =>
+    createToken(PERMISSIONS_ACCESS_TOKEN, user, '', clientID, parentTokenHash,
+        64, 86400)
 
-async function createToken(allowedPermissions, userID, name, clientID, length,
-    validFor) {
+async function createToken(allowedPermissions, userID, name, clientID,
+    parentTokenHash, length, validFor) {
     const token = await generateHashedToken(length, validFor)
-    await db.instateOAuthToken(token.hash, name, clientID, userID,
-        allowedPermissions, token.expiry)
+    await db.instateOAuthToken(token.hash, name, clientID, parentTokenHash,
+        userID, allowedPermissions, token.expiry)
     return token
 }
 
