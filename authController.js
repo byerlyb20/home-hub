@@ -34,9 +34,9 @@ class AuthorizationError extends Error {
 function assertPermission(permission) {
     let standard = 0
     for (var i = 1; i < arguments.length; i++) {
-        standard &= arguments[i]
+        standard |= arguments[i]
     }
-    if (permission & standard != standard) {
+    if ((permission & standard) != standard) {
         throw new AuthorizationError()
     }
 }
@@ -241,34 +241,50 @@ const tokenQuerySchema = Joi.object({
     })
     .when(Joi.object({ grant_type: 'refresh_token' }).unknown(), {
         then: Joi.object({
-            refresh_token: Joi.string().base64().required()
+            refresh_token: Joi.string().base64({ urlSafe: true, paddingRequired: false }).required()
         })
     })
 const tokenExchange = async (req, res, next) => {
     Joi.assert(req.query, tokenQuerySchema)
     if (req.query.name === undefined) {
-        const tokenHash = await base64Hash(req.query.code)
-        // { Type, UserId, Permissions, Expires }
-        const authorization = await db.lookupAuthorization(tokenHash)
-        await db.deleteAuthorization(tokenHash)
+        let body = {
+            token_type: 'Bearer'
+        }
+        var refreshToken
 
-        if (authorization === undefined || now() >= authorization.Expires) {
+        if (req.query.grant_type == 'authorization_code') {
+            const tokenHash = await base64Hash(req.query.code)
+            // { Type, UserId, Permissions, Expires }
+            const authorization = await db.lookupAuthorization(tokenHash)
+            await db.deleteAuthorization(tokenHash)
+    
+            if (authorization === undefined || now() >= authorization.Expires) {
+                throw new AuthorizationError()
+            }
+            assertPermission(authorization.Permissions,
+                PERMISSION_ISSUE_REFRESH_TOKEN)
+
+            userID = authorization.UserId
+            refreshToken = await createRefreshToken(authorization.UserId,
+                req.query.client_id)
+            body.refresh_token = base64.b64url(refreshToken.token)
+        } else if (req.query.grant_type == 'refresh_token') {
+            var tokenHash = await base64Hash(req.query.refresh_token)
+            // Id, Username, Permissions, Expires
+            refreshToken = await db.getOAuthTokenInfo(tokenHash)
+        }
+
+        if (refreshToken === undefined || now() >= refreshToken.Expires) {
             throw new AuthorizationError()
         }
-        assertPermission(authorization.Permissions,
-            PERMISSION_ISSUE_REFRESH_TOKEN, PERMISSION_ISSUE_REFRESH_TOKEN)
+        assertPermission(refreshToken.Permissions, PERMISSION_ISSUE_ACCESS_TOKEN)
 
-        const refreshToken = await createRefreshToken(authorization.UserId,
-            req.query.client_id)
-        const accessToken = await createAccessToken(authorization.UserId,
+        const accessToken = await createAccessToken(refreshToken.Id,
             req.query.client_id, refreshToken.hash)
+        body.access_token = accessToken.token
+        body.expires_in = 86400
 
-        res.json({
-            token_type: 'Bearer',
-            access_token: accessToken.token,
-            refresh_token: refreshToken.token,
-            expires_in: 86400
-        })
+        res.json(body)
     } else if (req.user !== undefined) {
         const token = await createAPIToken()
         res.json({
