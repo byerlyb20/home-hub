@@ -66,14 +66,11 @@ const saveSessionChallenge = ((challenge, challengeExpiry) => {
         VALUES (?, ?);`, challenge, challengeExpiry)
 })
 
-const getPasskey = (async (passkeyID) => {
-    let row = await get(`SELECT Users.Username, Users.Id, Passkeys.PublicKey
-                   FROM Passkeys
-                   INNER JOIN Users ON Passkeys.UserId = Users.Id
-                   WHERE Passkeys.Id=?;`, passkeyID)
-    if (row === undefined) return undefined
-    return [row['Username'], row['Id'], row['PublicKey']]
-})
+const getPasskey = (passkeyID) =>
+    get(`SELECT Users.Username, Passkeys.UserId, Passkeys.PublicKey
+         FROM Passkeys
+         INNER JOIN Users ON Passkeys.UserId = Users.Id
+         WHERE Passkeys.Id=?;`, passkeyID)
 
 const getSessionID = (async (challenge) => {
     let row = await get(`SELECT rowid, ChallengeExpiry
@@ -84,12 +81,12 @@ const getSessionID = (async (challenge) => {
 })
 
 const getSession = (async (token) => {
-    let row = await get(`SELECT Users.Id, Users.Username, Users.Permissions, Sessions.Expires
+    let row = await get(`SELECT Users.Id, Users.Username, Sessions.Expires
                          FROM Sessions
                          INNER JOIN Users ON Sessions.UserId = Users.Id
                          WHERE Token=?;`, token)
     if (row === undefined) return undefined
-    return [row['Id'], row['Username'], row['Permissions'], row['Expires']]
+    return [row['Id'], row['Username'], row['Expires']]
 })
 
 const instateSession = (token, userID, expires, sessionID) =>
@@ -107,15 +104,15 @@ const instateOAuthToken = (tokenHash, friendlyName, clientID, userID,
         FriendlyName,
         ClientId,
         UserId,
-        TokenPermissions
+        Permissions,
         Expires
     )
     VALUES (?, ?, ?, ?, ?, ?);`, tokenHash, friendlyName,
     clientID, userID, permissions, expires)
 
 const getOAuthTokenInfo = (tokenHash) =>
-    get(`SELECT Users.Id, Users.Username, Users.Permissions,
-         Tokens.TokenPermissions, Tokens.Expires
+    get(`SELECT Users.Id, Users.Username, Tokens.Permissions,
+         Tokens.Expires
          FROM TOKENS
          INNER JOIN Users ON Tokens.UserId = Users.Id
          WHERE TokenHash=?;`, tokenHash)

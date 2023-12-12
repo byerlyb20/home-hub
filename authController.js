@@ -9,6 +9,38 @@ const SESSION_COOKIE_NAME = 'sessionToken'
 const APP_DISPLAY_NAME = 'Home Hub'
 var HOSTNAME
 
+const CLIENT_ID_SELF = 0
+const CLIENT_ID_GOOGLE = 1
+
+const PERMISSION_MANAGE_ACCT = 1
+const PERMISSION_ISSUE_API_TOKEN = 2
+const PERMISSION_ISSUE_REFRESH_TOKEN = 4
+const PERMISSION_ISSUE_ACCESS_TOKEN = 8
+const PERMISSION_ACCOUNT_ACTOR = 256
+
+const PERMISSIONS_USER = PERMISSION_MANAGE_ACCT | PERMISSION_ISSUE_API_TOKEN |
+    PERMISSION_ISSUE_REFRESH_TOKEN | PERMISSION_ISSUE_ACCESS_TOKEN |
+    PERMISSION_ACCOUNT_ACTOR
+const PERMISSIONS_API_TOKEN = PERMISSION_ACCOUNT_ACTOR
+const PERMISSIONS_OAUTH_AUTHORIZATION = PERMISSION_ISSUE_REFRESH_TOKEN |
+    PERMISSION_ISSUE_ACCESS_TOKEN
+const PERMISSIONS_REFRESH_TOKEN = PERMISSION_ISSUE_ACCESS_TOKEN
+const PERMISSIONS_ACCESS_TOKEN = PERMISSION_ACCOUNT_ACTOR
+
+class AuthorizationError extends Error {
+    statusCode = 401
+}
+
+function assertPermission(permission) {
+    let standard = 0
+    for (var i = 1; i < arguments.length; i++) {
+        standard &= arguments[i]
+    }
+    if (permission & standard != standard) {
+        throw new AuthorizationError()
+    }
+}
+
 const authRouter = (hostname) => {
     // Setting the hostname globally is probably poor design; look for a better
     // way to pass in configuration variables
@@ -31,6 +63,7 @@ const authRouter = (hostname) => {
 
 const sessionTokenCookieSchema = Joi.string().base64()
 const authorizationHeaderSchema = Joi.string().pattern(/Bearer [A-Za-z0-9+\/=]+$/)
+const authorizationCodeSchema = Joi.string()
 const authState = async (req, res, next) => {
     let sessionToken = req.cookies[SESSION_COOKIE_NAME]
     let oauthToken = req.headers.authorization
@@ -38,26 +71,26 @@ const authState = async (req, res, next) => {
     Joi.assert(oauthToken, authorizationHeaderSchema)
 
     if (sessionToken !== undefined) {
-        const [userID, username, permissions, expires] =
-                await db.getSession(sessionToken) || []
+        const [userID, username, expires] =
+            await db.getSession(sessionToken) || []
         if (expires !== undefined && now() <= expires) {
             req.user = {
                 id: userID,
                 username: username,
-                permissions: permissions
+                permissions: PERMISSIONS_USER
             }
         } else {
             res.clearCookie(SESSION_COOKIE_NAME)
         }
     } else if (oauthToken !== undefined) {
         const oauthTokenHash = await base64Hash(oauthToken.substring(7))
-        const { Id, Username, Permissions, TokenPermissions, Expires } =
+        const { Id, Username, Permissions, Expires } =
             await db.getOAuthTokenInfo(oauthTokenHash) || {}
         if (Expires !== undefined && now() <= Expires) {
             req.user = {
                 id: Id,
                 username: Username,
-                permissions: Permissions & TokenPermissions
+                permissions: Permissions
             }
         }
     }
@@ -105,7 +138,7 @@ const registerFinish = async (req, res, next) => {
     // TODO: Check that challenge is unexpired and correct
     let [challenge, challengeExpiry] = await db.getUserChallenge(req.body.userID) || []
 
-    await db.savePasskey(base64.clean(req.body.keyID), req.body.userID,
+    await db.savePasskey(req.body.keyID, req.body.userID,
         req.body.publicKey)
 
     res.json({}).end()
@@ -135,9 +168,9 @@ const loginFinishSchema = Joi.object({
 const loginFinish = async (req, res, next) => {
     Joi.assert(req.body, loginFinishSchema)
     // Lookup credential
-    const [username, userID, publicKey] =
-        await db.getPasskey(base64.clean(req.body.keyID)) || []
-    if (publicKey === undefined) {
+    // { Username, UserId, PublicKey }
+    const credential = await db.getPasskey(req.body.keyID)
+    if (credential === undefined) {
         console.log('Unrecognized credential ID')
         res.status(401).end()
         return
@@ -149,7 +182,8 @@ const loginFinish = async (req, res, next) => {
         await calculateSignatureContents(req.body.authenticatorData,
             req.body.clientDataJSON)
 
-    const verified = await verify(publicKey, rawSignature, signatureContents)
+    const verified = await verify(credential.PublicKey, rawSignature,
+        signatureContents)
     if (!verified) {
         console.log('Signature could not be verified with known public key')
         res.status(401).end()
@@ -171,13 +205,13 @@ const loginFinish = async (req, res, next) => {
 
     // Issue a session token
     const [token, expires] = generateSessionToken()
-    await db.instateSession(token, userID, expires, sessionID)
+    await db.instateSession(token, credential.UserId, expires, sessionID)
 
     res.cookie(SESSION_COOKIE_NAME, token, {
         expires: new Date(expires * 1000),
         httpOnly: true
     }).json({
-        username: username,
+        username: credential.Username,
         expires: expires
     })
 }
@@ -219,41 +253,31 @@ const tokenExchange = async (req, res, next) => {
         await db.deleteAuthorization(tokenHash)
 
         if (authorization === undefined || now() >= authorization.Expires) {
-            res.status(401).end()
-            return
+            throw new AuthorizationError()
         }
+        assertPermission(authorization.Permissions,
+            PERMISSION_ISSUE_REFRESH_TOKEN, PERMISSION_ISSUE_REFRESH_TOKEN)
 
-        const [refreshToken, refreshHash, refreshExpires] =
-            await generateOAuthLongLiveToken()
-        const refreshPermissions = authorization.Permissions
-        await db.instateOAuthToken(refreshHash, '', req.query.client_id,
-            authorization.UserId, refreshPermissions, refreshExpires)
-
-        const [accessToken, accessHash, accessExpires] =
-            await generateOAuthShortLiveToken()
-        const accessPermissions = authorization.Permissions
-        await db.instateOAuthToken(accessHash, '', req.query.client_id,
-            authorization.UserId, accessPermissions, accessExpires)
+        const refreshToken = await createRefreshToken(authorization.UserId,
+            req.query.client_id)
+        const accessToken = await createAccessToken(authorization.UserId,
+            req.query.client_id)
 
         res.json({
             token_type: 'Bearer',
-            access_token: accessToken,
-            refresh_token: refreshToken,
+            access_token: accessToken.token,
+            refresh_token: refreshToken.token,
             expires_in: 86400
         })
     } else if (req.user !== undefined) {
-        const [token, tokenHash, expires] = await generateOAuthLongLiveToken()
-        const tokenPermissions = 0
-        await db.instateOAuthToken(tokenHash, req.query.name, 0, req.user.id,
-            tokenPermissions, expires)
+        const token = await createAPIToken()
         res.json({
-            token: token,
+            token: token.token,
             name: req.body.name,
-            permissions: 0,
-            expires: expires
+            expires: token.expiry
         })
     } else {
-        res.status(401).end()
+        throw new AuthorizationError()
     }
 }
 
@@ -265,13 +289,13 @@ const oauthAuthorization = async (req, res) => {
     Joi.assert(req.body, oauthAuthorizationSchema)
 
     if (req.user !== undefined) {
-        const [token, tokenHash, expires] = await generateAuthorizationToken()
-        const tokenPermissions = 0
-        await db.instateOneTimeAuthorization(tokenHash,
-            db.AUTHORIZATION_TYPE_TOKEN, req.user.id, tokenPermissions)
+        const token = await generateAuthorizationToken()
+        await db.instateOneTimeAuthorization(token.hash,
+            db.AUTHORIZATION_TYPE_TOKEN, req.user.id,
+                PERMISSIONS_OAUTH_AUTHORIZATION)
         
         res.json({
-            code: token
+            code: token.token
         })
     } else {
         res.status(401).end()
@@ -318,9 +342,22 @@ async function verify(publicKey, signature, signatureContents) {
 
 const generateChallenge = () => generateToken(32, 600)
 const generateSessionToken = () => generateToken(64, 86400)
-const generateOAuthLongLiveToken = () => generateHashedToken(64, 31536000)
-const generateOAuthShortLiveToken = () => generateHashedToken(64, 86400)
 const generateAuthorizationToken = () => generateHashedToken(32, 600)
+
+const createAPIToken = (user, name) =>
+    createToken(PERMISSIONS_API_TOKEN, user, name, CLIENT_ID_SELF, 64, 31536000)
+const createRefreshToken = (user, clientID) =>
+    createToken(PERMISSIONS_REFRESH_TOKEN, user, '', clientID, 64, 31536000)
+const createAccessToken = (user, clientID) =>
+    createToken(PERMISSIONS_ACCESS_TOKEN, user, '', clientID, 64, 86400)
+
+async function createToken(allowedPermissions, userID, name, clientID, length,
+    validFor) {
+    const token = await generateHashedToken(length, validFor)
+    await db.instateOAuthToken(token.hash, name, clientID, userID,
+        allowedPermissions, token.expiry)
+    return token
+}
 
 function now() {
     return Math.round(Date.now() / 1000)
@@ -335,8 +372,11 @@ function generateToken(len, validDuration) {
 async function generateHashedToken(len, validDuration) {
     let token = globalThis.crypto.getRandomValues(new Uint8Array(len))
     let tokenHash = await subtle.digest('SHA-256', token)
-    let expires = now() + validDuration
-    return [abtobase64(token), abtobase64(tokenHash), expires]
+    return {
+        token: abtobase64(token),
+        hash: abtobase64(tokenHash),
+        expiry: now() + validDuration
+    }
 }
 
 function abtobase64(ab) {
