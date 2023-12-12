@@ -7,7 +7,7 @@ const base64 = require('./base64')
 
 const SESSION_COOKIE_NAME = 'sessionToken'
 const APP_DISPLAY_NAME = 'Home Hub'
-var HOSTNAME
+let HOSTNAME
 
 const CLIENT_ID_SELF = 0
 const CLIENT_ID_GOOGLE = 1
@@ -33,7 +33,7 @@ class AuthorizationError extends Error {
 
 function assertPermission(permission) {
     let standard = 0
-    for (var i = 1; i < arguments.length; i++) {
+    for (let i = 1; i < arguments.length; i++) {
         standard |= arguments[i]
     }
     if ((permission & standard) != standard) {
@@ -250,7 +250,8 @@ const tokenExchange = async (req, res, next) => {
         let body = {
             token_type: 'Bearer'
         }
-        var refreshToken
+
+        let refreshTokenHash
 
         if (req.query.grant_type == 'authorization_code') {
             const tokenHash = await base64Hash(req.query.code)
@@ -265,14 +266,15 @@ const tokenExchange = async (req, res, next) => {
                 PERMISSION_ISSUE_REFRESH_TOKEN)
 
             userID = authorization.UserId
-            refreshToken = await createRefreshToken(authorization.UserId,
+            const refreshToken = await createRefreshToken(authorization.UserId,
                 req.query.client_id)
+            refreshTokenHash = refreshToken.hash
             body.refresh_token = base64.b64url(refreshToken.token)
         } else if (req.query.grant_type == 'refresh_token') {
-            var tokenHash = await base64Hash(req.query.refresh_token)
-            // Id, Username, Permissions, Expires
-            refreshToken = await db.getOAuthTokenInfo(tokenHash)
+            refreshTokenHash = await base64Hash(req.query.refresh_token)
         }
+
+        const refreshToken = await db.getOAuthTokenInfo(refreshTokenHash)
 
         if (refreshToken === undefined || now() >= refreshToken.Expires) {
             throw new AuthorizationError()
@@ -280,7 +282,7 @@ const tokenExchange = async (req, res, next) => {
         assertPermission(refreshToken.Permissions, PERMISSION_ISSUE_ACCESS_TOKEN)
 
         const accessToken = await createAccessToken(refreshToken.Id,
-            req.query.client_id, refreshToken.hash)
+            req.query.client_id, refreshToken.TokenHash)
         body.access_token = accessToken.token
         body.expires_in = 86400
 
