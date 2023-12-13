@@ -134,3 +134,12 @@ function base64toab(base64) {
     }
     return buffer
 }
+
+export {
+    register,
+    login,
+    logout,
+    user,
+    createAPIToken,
+    getOAuthAuthCode
+}

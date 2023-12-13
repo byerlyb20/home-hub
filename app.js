@@ -47,5 +47,5 @@ app.post('/api/v1/toggle/', (req, res) => {
 })
 
 app.get('/user', (req, res) => {
-    res.json(req.user)
+    res.json(req.user || {})
 })

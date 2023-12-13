@@ -245,57 +245,67 @@ const tokenQuerySchema = Joi.object({
         })
     })
 const tokenExchange = async (req, res, next) => {
-    Joi.assert(req.query, tokenQuerySchema)
-    if (req.query.name === undefined) {
-        let body = {
-            token_type: 'Bearer'
-        }
+    try {
+        Joi.assert(req.query, tokenQuerySchema)
+        if (req.query.name === undefined) {
+            let body = {
+                token_type: 'Bearer'
+            }
 
-        let refreshTokenHash
+            let refreshTokenHash
 
-        if (req.query.grant_type == 'authorization_code') {
-            const tokenHash = await base64Hash(req.query.code)
-            // { Type, UserId, Permissions, Expires }
-            const authorization = await db.lookupAuthorization(tokenHash)
-            await db.deleteAuthorization(tokenHash)
-    
-            if (authorization === undefined || now() >= authorization.Expires) {
+            if (req.query.grant_type == 'authorization_code') {
+                const tokenHash = await base64Hash(req.query.code)
+                // { Type, UserId, Permissions, Expires }
+                const authorization = await db.lookupAuthorization(tokenHash)
+                await db.deleteAuthorization(tokenHash)
+        
+                if (authorization === undefined || now() >= authorization.Expires) {
+                    throw new AuthorizationError()
+                }
+                assertPermission(authorization.Permissions,
+                    PERMISSION_ISSUE_REFRESH_TOKEN)
+
+                userID = authorization.UserId
+                const refreshToken = await createRefreshToken(authorization.UserId,
+                    req.query.client_id)
+                refreshTokenHash = refreshToken.hash
+                body.refresh_token = base64.b64url(refreshToken.token)
+            } else if (req.query.grant_type == 'refresh_token') {
+                refreshTokenHash = await base64Hash(req.query.refresh_token)
+            }
+
+            const refreshToken = await db.getOAuthTokenInfo(refreshTokenHash)
+
+            if (refreshToken === undefined || now() >= refreshToken.Expires) {
                 throw new AuthorizationError()
             }
-            assertPermission(authorization.Permissions,
-                PERMISSION_ISSUE_REFRESH_TOKEN)
+            assertPermission(refreshToken.Permissions, PERMISSION_ISSUE_ACCESS_TOKEN)
 
-            userID = authorization.UserId
-            const refreshToken = await createRefreshToken(authorization.UserId,
-                req.query.client_id)
-            refreshTokenHash = refreshToken.hash
-            body.refresh_token = base64.b64url(refreshToken.token)
-        } else if (req.query.grant_type == 'refresh_token') {
-            refreshTokenHash = await base64Hash(req.query.refresh_token)
-        }
+            const accessToken = await createAccessToken(refreshToken.Id,
+                req.query.client_id, refreshToken.TokenHash)
+            body.access_token = accessToken.token
+            body.expires_in = 86400
 
-        const refreshToken = await db.getOAuthTokenInfo(refreshTokenHash)
-
-        if (refreshToken === undefined || now() >= refreshToken.Expires) {
+            res.json(body)
+        } else if (req.user !== undefined) {
+            const token = await createAPIToken()
+            res.json({
+                token: token.token,
+                name: req.body.name,
+                expires: token.expiry
+            })
+        } else {
             throw new AuthorizationError()
         }
-        assertPermission(refreshToken.Permissions, PERMISSION_ISSUE_ACCESS_TOKEN)
-
-        const accessToken = await createAccessToken(refreshToken.Id,
-            req.query.client_id, refreshToken.TokenHash)
-        body.access_token = accessToken.token
-        body.expires_in = 86400
-
-        res.json(body)
-    } else if (req.user !== undefined) {
-        const token = await createAPIToken()
-        res.json({
-            token: token.token,
-            name: req.body.name,
-            expires: token.expiry
-        })
-    } else {
-        throw new AuthorizationError()
+    } catch (e) {
+        if (e instanceof AuthorizationError) {
+            res.status(400).json({
+                error: "invalid_grant"
+            })
+        } else {
+            throw e
+        }
     }
 }
 
