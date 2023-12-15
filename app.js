@@ -6,6 +6,7 @@ const Joi = require('joi')
 
 const db = require('./dbController')
 const auth = require('./authController')
+const smarthomeApp = require('./GoogleHomeGraphController')
 
 const app = express()
 
@@ -45,6 +46,8 @@ app.post('/api/v1/toggle/', (req, res) => {
         })
     res.status(200).end()
 })
+
+app.post('/fulfillment', smarthomeApp)
 
 app.get('/user', (req, res) => {
     res.json(req.user || {})

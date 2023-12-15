@@ -4,6 +4,7 @@ const Joi = require('joi')
 
 const db = require('./dbController')
 const base64 = require('./base64')
+const perm = require('./permissions')
 
 const SESSION_COOKIE_NAME = 'sessionToken'
 const APP_DISPLAY_NAME = 'Home Hub'
@@ -11,35 +12,6 @@ let HOSTNAME
 
 const CLIENT_ID_SELF = 0
 const CLIENT_ID_GOOGLE = 1
-
-const PERMISSION_MANAGE_ACCT = 1
-const PERMISSION_ISSUE_API_TOKEN = 2
-const PERMISSION_ISSUE_REFRESH_TOKEN = 4
-const PERMISSION_ISSUE_ACCESS_TOKEN = 8
-const PERMISSION_ACCOUNT_ACTOR = 256
-
-const PERMISSIONS_USER = PERMISSION_MANAGE_ACCT | PERMISSION_ISSUE_API_TOKEN |
-    PERMISSION_ISSUE_REFRESH_TOKEN | PERMISSION_ISSUE_ACCESS_TOKEN |
-    PERMISSION_ACCOUNT_ACTOR
-const PERMISSIONS_API_TOKEN = PERMISSION_ACCOUNT_ACTOR
-const PERMISSIONS_OAUTH_AUTHORIZATION = PERMISSION_ISSUE_REFRESH_TOKEN |
-    PERMISSION_ISSUE_ACCESS_TOKEN
-const PERMISSIONS_REFRESH_TOKEN = PERMISSION_ISSUE_ACCESS_TOKEN
-const PERMISSIONS_ACCESS_TOKEN = PERMISSION_ACCOUNT_ACTOR
-
-class AuthorizationError extends Error {
-    statusCode = 401
-}
-
-function assertPermission(permission) {
-    let standard = 0
-    for (let i = 1; i < arguments.length; i++) {
-        standard |= arguments[i]
-    }
-    if ((permission & standard) != standard) {
-        throw new AuthorizationError()
-    }
-}
 
 const authRouter = (hostname) => {
     // Setting the hostname globally is probably poor design; look for a better
@@ -77,7 +49,7 @@ const authState = async (req, res, next) => {
             req.user = {
                 id: userID,
                 username: username,
-                permissions: PERMISSIONS_USER
+                permissions: perm.PERMISSIONS_USER
             }
         } else {
             res.clearCookie(SESSION_COOKIE_NAME)
@@ -246,44 +218,44 @@ const tokenQuerySchema = Joi.object({
     })
 const tokenExchange = async (req, res, next) => {
     try {
-        Joi.assert(req.query, tokenQuerySchema)
-        if (req.query.name === undefined) {
+        Joi.assert(req.body, tokenQuerySchema)
+        if (req.body.name === undefined) {
             let body = {
                 token_type: 'Bearer'
             }
 
             let refreshTokenHash
 
-            if (req.query.grant_type == 'authorization_code') {
-                const tokenHash = await base64Hash(req.query.code)
+            if (req.body.grant_type == 'authorization_code') {
+                const tokenHash = await base64Hash(req.body.code)
                 // { Type, UserId, Permissions, Expires }
                 const authorization = await db.lookupAuthorization(tokenHash)
                 await db.deleteAuthorization(tokenHash)
         
                 if (authorization === undefined || now() >= authorization.Expires) {
-                    throw new AuthorizationError()
+                    throw new perm.AuthorizationError()
                 }
-                assertPermission(authorization.Permissions,
-                    PERMISSION_ISSUE_REFRESH_TOKEN)
+                perm.assertPermission(authorization.Permissions,
+                    perm.PERMISSION_ISSUE_REFRESH_TOKEN)
 
                 userID = authorization.UserId
                 const refreshToken = await createRefreshToken(authorization.UserId,
-                    req.query.client_id)
+                    req.body.client_id)
                 refreshTokenHash = refreshToken.hash
                 body.refresh_token = base64.b64url(refreshToken.token)
-            } else if (req.query.grant_type == 'refresh_token') {
-                refreshTokenHash = await base64Hash(req.query.refresh_token)
+            } else if (req.body.grant_type == 'refresh_token') {
+                refreshTokenHash = await base64Hash(req.body.refresh_token)
             }
 
             const refreshToken = await db.getOAuthTokenInfo(refreshTokenHash)
 
             if (refreshToken === undefined || now() >= refreshToken.Expires) {
-                throw new AuthorizationError()
+                throw new perm.AuthorizationError()
             }
-            assertPermission(refreshToken.Permissions, PERMISSION_ISSUE_ACCESS_TOKEN)
+            perm.assertPermission(refreshToken.Permissions, perm.PERMISSION_ISSUE_ACCESS_TOKEN)
 
             const accessToken = await createAccessToken(refreshToken.Id,
-                req.query.client_id, refreshToken.TokenHash)
+                req.body.client_id, refreshToken.TokenHash)
             body.access_token = accessToken.token
             body.expires_in = 86400
 
@@ -296,10 +268,10 @@ const tokenExchange = async (req, res, next) => {
                 expires: token.expiry
             })
         } else {
-            throw new AuthorizationError()
+            throw new perm.AuthorizationError()
         }
     } catch (e) {
-        if (e instanceof AuthorizationError) {
+        if (e instanceof perm.AuthorizationError) {
             res.status(400).json({
                 error: "invalid_grant"
             })
@@ -320,7 +292,7 @@ const oauthAuthorization = async (req, res) => {
         const token = await generateAuthorizationToken()
         await db.instateOneTimeAuthorization(token.hash,
             db.AUTHORIZATION_TYPE_TOKEN, req.user.id,
-                PERMISSIONS_OAUTH_AUTHORIZATION)
+                perm.PERMISSIONS_OAUTH_AUTHORIZATION)
         
         res.json({
             code: token.token
@@ -373,13 +345,13 @@ const generateSessionToken = () => generateToken(64, 86400)
 const generateAuthorizationToken = () => generateHashedToken(32, 600)
 
 const createAPIToken = (user, name) =>
-    createToken(PERMISSIONS_API_TOKEN, user, name, CLIENT_ID_SELF, null, 64,
+    createToken(perm.PERMISSIONS_API_TOKEN, user, name, CLIENT_ID_SELF, null, 64,
         31536000)
 const createRefreshToken = (user, clientID) =>
-    createToken(PERMISSIONS_REFRESH_TOKEN, user, '', clientID, null, 64,
+    createToken(perm.PERMISSIONS_REFRESH_TOKEN, user, '', clientID, null, 64,
         31536000)
 const createAccessToken = (user, clientID, parentTokenHash) =>
-    createToken(PERMISSIONS_ACCESS_TOKEN, user, '', clientID, parentTokenHash,
+    createToken(perm.PERMISSIONS_ACCESS_TOKEN, user, '', clientID, parentTokenHash,
         64, 86400)
 
 async function createToken(allowedPermissions, userID, name, clientID,

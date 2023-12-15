@@ -32,7 +32,7 @@ async function checkLogin() {
     if (currentUser.id === undefined) {
         showPage(PAGE_LOGIN)
     } else {
-        whenLoggedIn()
+        whenLoggedIn(currentUser)
     }
 }
 
