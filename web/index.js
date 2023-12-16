@@ -17,5 +17,3 @@ async function apiTokenFormGenerate() {
         document.getElementById('apiTokenExpiresDetail').innerText = expiry.toDateString()
     }
 }
-
-updateUserDetail()

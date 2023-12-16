@@ -11,7 +11,6 @@ const smarthome = require('./smarthomeController')
 
 const app = express()
 
-const HOSTNAME = process.env.HOSTNAME
 const PORT = process.env.PORT
 
 db.connect('home.db')
@@ -36,7 +35,7 @@ app.listen(PORT, () => {
     console.log(`Listening on port ${PORT}`)
 })
 
-app.use('/auth', auth.authRouter(HOSTNAME))
+app.use('/auth', auth.authRouter())
 
 app.post('/api/v1/toggle/', async (req, res) => {
     var bay = req.body.bay || 0

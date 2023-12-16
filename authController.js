@@ -8,19 +8,20 @@ const perm = require('./permissions')
 
 const SESSION_COOKIE_NAME = 'sessionToken'
 const APP_DISPLAY_NAME = 'Home Hub'
-let HOSTNAME
+const HOSTNAME = process.env.HOSTNAME
 
 const CLIENT_ID_SELF = 0
 const CLIENT_ID_GOOGLE = 1
 
-const authRouter = (hostname) => {
+const authRouter = () => {
     // Setting the hostname globally is probably poor design; look for a better
     // way to pass in configuration variables
-    HOSTNAME = hostname
     const router = express.Router()
 
-    router.post('/register/start', registerStart)
-    router.post('/register/finish', registerFinish)
+    if (process.env.ENABLE_REGISTRATION) {
+        router.post('/register/start', registerStart)
+        router.post('/register/finish', registerFinish)
+    }
 
     router.post('/login/start', loginStart)
     router.post('/login/finish', loginFinish)
