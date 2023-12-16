@@ -1,5 +1,11 @@
+# macOS Finder files
+.DS_Store
+
 # SQLite database files
 *.db
+
+# Local config directory
+config/
 
 ### Taken from github/gitignore/Node.gitignore
 

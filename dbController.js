@@ -1,6 +1,6 @@
 const sqlite3 = require('sqlite3')
 
-var db
+let db
 
 function connect(path) {
     db = new sqlite3.Database(path)

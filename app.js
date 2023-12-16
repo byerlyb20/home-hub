@@ -1,20 +1,21 @@
 require('dotenv').config()
 const express = require('express')
 const cookieParser = require('cookie-parser')
-const net = require('net')
 const Joi = require('joi')
 
 const db = require('./dbController')
 const auth = require('./authController')
-const smarthomeApp = require('./GoogleHomeGraphController')
+const perm = require('./permissions')
+const homegraph = require('./GoogleHomeGraphController')
+const smarthome = require('./smarthomeController')
 
 const app = express()
 
-const SOCKET = process.env.GARAGE_SOCKET
 const HOSTNAME = process.env.HOSTNAME
 const PORT = process.env.PORT
 
 db.connect('home.db')
+smarthome.config(process.env.GARAGE_SOCKET)
 
 // Error status codes are passed on by Express as the HTTP response status
 Joi.ValidationError.prototype.statusCode = 400
@@ -37,18 +38,23 @@ app.listen(PORT, () => {
 
 app.use('/auth', auth.authRouter(HOSTNAME))
 
-app.post('/api/v1/toggle/', (req, res) => {
+app.post('/api/v1/toggle/', async (req, res) => {
     var bay = req.body.bay || 0
-    var client = net.createConnection(SOCKET)
-        .on('connect', () => {
-            client.write(new Uint8Array([0, bay]))
-            client.end()
-        })
-    res.status(200).end()
+    smarthome.toggleGarage(bay).then(() => {
+        res.status(200).end()
+    }).catch((e) => {
+        res.status(500).end()
+    })
 })
 
-app.post('/fulfillment', smarthomeApp)
+app.post('/fulfillment', homegraph.app)
 
 app.get('/user', (req, res) => {
     res.json(req.user || {})
+})
+
+app.all('/request_homegraph_sync', async (req, res) => {
+    perm.assertUserPermission(req.user, perm.PERMISSION_ACCOUNT_ACTOR)
+    await homegraph.requestSyncForUser(req.user.id.toString())
+    res.status(200).end()
 })
