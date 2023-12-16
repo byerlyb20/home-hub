@@ -38,6 +38,7 @@ app.listen(PORT, () => {
 app.use('/auth', auth.authRouter())
 
 app.post('/api/v1/toggle/', async (req, res) => {
+    perm.assertUserPermission(req.user, perm.PERMISSION_ACCOUNT_ACTOR)
     var bay = req.body.bay || 0
     smarthome.toggleGarage(bay).then(() => {
         res.status(200).end()

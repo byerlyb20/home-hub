@@ -86,16 +86,22 @@ app.onQuery((body, headers, metadata) => {
                 "123": {
                     online: true,
                     status: 'SUCCESS',
-                    openPercent: 100
+                    openPercent: 0
                 },
                 "456": {
-                    online: false,
-                    status: 'OFFLINE'
+                    online: true,
+                    status: 'SUCCESS',
+                    openPercent: 0
                 }
             }
         }
     }
 })
+
+const BAY_IDS = {
+    '123': 0,
+    '456': 1
+}
 
 app.onExecute(async (body, headers, metadata) => {
     let user = metadata.express?.request?.user
@@ -112,34 +118,21 @@ app.onExecute(async (body, headers, metadata) => {
             switch (execution.command) {
                 case 'action.devices.commands.OpenClose':
                     for (device of devices) {
-                        let bay = device.id == '123' ? 0 : 1
-                        switch (device.id) {
-                            case '456':
-                                commandsResponse.push({
-                                    ids: [device.id],
-                                    status: "OFFLINE",
-                                    states: {
-                                        online: false
-                                    }
-                                })
-                                break;
-                            default:
-                                await smarthomeController.toggleGarage(bay).then(() => {
-                                    commandsResponse.push({
-                                        ids: [device.id],
-                                        status: "SUCCESS",
-                                        states: {
-                                            online: true
-                                        }
-                                    })
-                                }).catch((e) => {
-                                    commandsResponse.push({
-                                        ids: [device.id],
-                                        status: "ERROR"
-                                    })
-                                })
-                                break;
-                        }
+                        let bay = BAY_IDS[device.id]
+                        await smarthomeController.toggleGarage(bay).then(() => {
+                            commandsResponse.push({
+                                ids: [device.id],
+                                status: "SUCCESS",
+                                states: {
+                                    online: true
+                                }
+                            })
+                        }).catch((e) => {
+                            commandsResponse.push({
+                                ids: [device.id],
+                                status: "ERROR"
+                            })
+                        })
                     }
             }
         }
