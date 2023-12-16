@@ -84,10 +84,13 @@ app.onQuery((body, headers, metadata) => {
         payload: {
             devices: {
                 "123": {
-                    "online": true
+                    online: true,
+                    status: 'SUCCESS',
+                    openPercent: 100
                 },
                 "456": {
-                    "online": false
+                    online: false,
+                    status: 'OFFLINE'
                 }
             }
         }
