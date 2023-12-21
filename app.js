@@ -13,7 +13,7 @@ const app = express()
 
 const PORT = process.env.PORT
 
-db.connect('home.db')
+db.connect(process.env.DB_PATH)
 smarthome.config(process.env.GARAGE_SOCKET)
 
 // Error status codes are passed on by Express as the HTTP response status
