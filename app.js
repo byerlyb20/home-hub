@@ -31,7 +31,7 @@ app.use(auth.authState)
 
 app.use(express.static('web'))
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Listening on port ${PORT}`)
 })
 
@@ -57,4 +57,10 @@ app.all('/request_homegraph_sync', async (req, res) => {
     perm.assertUserPermission(req.user, perm.PERMISSION_ACCOUNT_ACTOR)
     await homegraph.requestSyncForUser(req.user.id.toString())
     res.status(200).end()
+})
+
+process.on('SIGTERM', () => {
+    server.close(() => {
+        console.log('Server closed')
+    })
 })
