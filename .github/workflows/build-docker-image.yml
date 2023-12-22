@@ -28,3 +28,4 @@ jobs:
           push: true
           tags: byerlybrigham/home-hub:latest
           cache-from: type=registry,ref=byerlybrigham/home-hub:latest
+          cache-to: type=inline
