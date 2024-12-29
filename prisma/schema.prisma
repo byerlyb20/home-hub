@@ -1,0 +1,64 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int       @id @default(autoincrement())
+  username        String    @unique
+  permissions     Int       @default(0)
+  challenge       String?
+  challengeExpiry DateTime?
+  passkeys        Passkey[]
+  sessions        Session[]
+  tokens          Token[]
+  authorizations  Authorization[]
+}
+
+model Passkey {
+  id              String    @id
+  user            User      @relation(fields: [userId], references: [id])
+  userId          Int
+  publicKey       String
+  createdOn       DateTime  @default(now())
+}
+
+model Session {
+  id              Int       @id @default(autoincrement())
+  token           String
+  user            User      @relation(fields: [userId], references: [id])
+  userId          Int
+  expires         DateTime
+  challenge       String?
+  challengeExpiry DateTime?
+}
+
+model Token {
+  tokenHash       String    @id
+  friendlyName    String?
+  clientId        Int?
+  parentToken     Token?    @relation(name: "inherited", fields: [parentTokenHash], references: [tokenHash])
+  parentTokenHash String?
+  childTokens     Token[]   @relation(name: "inherited")
+  user            User      @relation(fields: [userId], references: [id])
+  userId          Int
+  permissions     Int       @default(0)
+  createdOn       DateTime  @default(now())
+  expires         DateTime
+}
+
+model Authorization {
+  tokenHash       String    @id
+  type            Int       @default(0)
+  user            User      @relation(fields: [userId], references: [id])
+  userId          Int
+  permissions     Int
+  expires         DateTime
+}
