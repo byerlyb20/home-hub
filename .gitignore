@@ -4,6 +4,9 @@
 # SQLite database files
 *.db
 
+# Prisma database journal files
+*.db-journal
+
 # Local config directory
 config/
 
