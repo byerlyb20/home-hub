@@ -13,7 +13,7 @@ type MiddlewareFunction = (req: Request, res: Response, next: NextFunction) => v
 export type AuthenticatedRequest = Request & { user: (User | null | undefined) }
 
 const app = express()
-const smarthome = new SmarthomeController(process.env.GARAGE_SOCKET ?? "")
+export const smarthomeController = new SmarthomeController(process.env.GARAGE_SOCKET ?? "")
 
 const PORT = process.env.PORT
 
@@ -41,7 +41,7 @@ app.use('/auth', authRouter())
 app.post('/api/v1/toggle/', async (req: Request, res: Response) => {
     assertUserPermission((req as AuthenticatedRequest).user, Permission.AccountActor)
     var bay = req.body.bay || 0
-    smarthome.toggleGarage(bay).then(() => {
+    smarthomeController.toggleGarage(bay).then(() => {
         res.status(200).end()
     }).catch((e: Error) => {
         res.status(500).end()

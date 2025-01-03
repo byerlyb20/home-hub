@@ -1,7 +1,7 @@
-const { smarthome } = require('actions-on-google')
-const { google } = require('googleapis')
-const perm = require('./permissions')
-const smarthomeController = require('./smarthomeController')
+import { smarthome, SmartHomeV1ExecuteResponseCommands } from "actions-on-google"
+import { google } from "googleapis"
+import { assertUserPermission, AuthorizationError, Permission } from "./permissions"
+import { AuthenticatedRequest, smarthomeController } from "./app"
 
 const app = smarthome()
 
@@ -12,21 +12,25 @@ const homegraphClient = google.homegraph({
     })
 })
 
-const requestSyncForUser = (userID) => homegraphClient.devices.requestSync({
+const requestSyncForUser = (userId: string) => homegraphClient.devices.requestSync({
     requestBody: {
-        agentUserId: userID,
+        agentUserId: userId,
         async: false
     }
 })
 
 app.onSync((body, headers, metadata) => {
-    let user = metadata.express?.request?.user
-    perm.assertUserPermission(user, perm.PERMISSION_ACCOUNT_ACTOR)
+    const request = metadata.express?.request as (AuthenticatedRequest | undefined)
+    let user = request?.user
+    if (!user) {
+        throw new AuthorizationError()
+    }
+    assertUserPermission(user, Permission.AccountActor)
     // TODO Get devices for user
     return {
         requestId: body.requestId,
         payload: {
-            agentUserId: user.id,
+            agentUserId: String(user.id),
             devices: [{
                 id: "123",
                 type: "action.devices.types.GARAGE",
@@ -34,7 +38,9 @@ app.onSync((body, headers, metadata) => {
                     "action.devices.traits.OpenClose"
                 ],
                 name: {
-                    name: "Right Door"
+                    name: "Right Door",
+                    defaultNames: [],
+                    nicknames: []
                 },
                 willReportState: false,
                 roomHint: "garage",
@@ -56,7 +62,9 @@ app.onSync((body, headers, metadata) => {
                     "action.devices.traits.OpenClose"
                 ],
                 name: {
-                    name: "Left Door"
+                    name: "Left Door",
+                    defaultNames: [],
+                    nicknames: []
                 },
                 willReportState: false,
                 roomHint: "garage",
@@ -76,8 +84,12 @@ app.onSync((body, headers, metadata) => {
 })
 
 app.onQuery((body, headers, metadata) => {
-    let user = metadata.express?.request?.user
-    perm.assertUserPermission(user, perm.PERMISSION_ACCOUNT_ACTOR)
+    const request = metadata.express?.request as (AuthenticatedRequest | undefined)
+    let user = request?.user
+    if (!user) {
+        throw new AuthorizationError()
+    }
+    assertUserPermission(user, Permission.AccountActor)
     // TODO Get devices for user
     return {
         requestId: body.requestId,
@@ -98,27 +110,33 @@ app.onQuery((body, headers, metadata) => {
     }
 })
 
-const BAY_IDS = {
+const BAY_IDS: {
+    [key: string]: number
+} = {
     '123': 0,
     '456': 1
 }
 
 app.onExecute(async (body, headers, metadata) => {
-    let user = metadata.express?.request?.user
-    perm.assertUserPermission(user, perm.PERMISSION_ACCOUNT_ACTOR)
+    const request = metadata.express?.request as (AuthenticatedRequest | undefined)
+    let user = request?.user
+    if (!user) {
+        throw new AuthorizationError()
+    }
+    assertUserPermission(user, Permission.AccountActor)
 
-    var commandsResponse = []
+    var commandsResponse: SmartHomeV1ExecuteResponseCommands[] = []
 
     let commandGroups = body.inputs[0].payload.commands
-    for (commandGroup of commandGroups) {
+    for (const commandGroup of commandGroups) {
         let executions = commandGroup.execution
         let devices = commandGroup.devices
-        for (execution of executions) {
+        for (const execution of executions) {
             console.log('Handling an execution %s', execution.command)
             switch (execution.command) {
                 case 'action.devices.commands.OpenClose':
-                    for (device of devices) {
-                        let bay = BAY_IDS[device.id]
+                    for (const device of devices) {
+                        let bay = BAY_IDS[device.id] ?? 0
                         await smarthomeController.toggleGarage(bay).then(() => {
                             commandsResponse.push({
                                 ids: [device.id],

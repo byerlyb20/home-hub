@@ -2,11 +2,10 @@ import express, { NextFunction, Request, Response } from 'express'
 const subtle = globalThis.crypto.subtle
 import Joi from 'joi'
 import { AuthenticatedRequest } from './app'
-import { assertUserPermission, Permission, Permissions } from './permissions'
+import { assertPermission, assertUserPermission, AuthorizationError, Permission, Permissions } from './permissions'
 
 import * as db from './dbController'
-const base64 = require('./base64')
-const perm = require('./permissions')
+import { b64clean, b64url } from './base64'
 
 const SESSION_COOKIE_NAME = 'sessionToken'
 const APP_DISPLAY_NAME = 'Home Hub'
@@ -54,7 +53,7 @@ export const authState: MiddlewareFunction = async (req, res, next) => {
             authReq.user = {
                 id: session.user.id,
                 username: session.user.username,
-                permissions: perm.PERMISSIONS_USER
+                permissions: Permissions.USER
             }
         } else {
             res.clearCookie(SESSION_COOKIE_NAME)
@@ -237,15 +236,15 @@ const tokenExchange: MiddlewareFunction = async (req, res, next) => {
                 await db.deleteAuthorization(tokenHash)
         
                 if (!authorization || now() >= authorization.expires.valueOf()) {
-                    throw new perm.AuthorizationError()
+                    throw new AuthorizationError()
                 }
-                perm.assertPermission(authorization.permissions,
-                    perm.PERMISSION_ISSUE_REFRESH_TOKEN)
+                assertPermission(authorization.permissions,
+                    Permission.IssueRefreshToken)
 
                 const refreshToken = await createRefreshToken(authorization.userId,
                     req.body.client_id)
                 refreshTokenHash = refreshToken.hash
-                urlSafeRefreshToken = base64.b64url(refreshToken.token)
+                urlSafeRefreshToken = b64url(refreshToken.token)
             } else if (req.body.grant_type == 'refresh_token') {
                 refreshTokenHash = await base64Hash(req.body.refresh_token)
             }
@@ -253,10 +252,10 @@ const tokenExchange: MiddlewareFunction = async (req, res, next) => {
             const refreshToken = await db.getOAuthToken(refreshTokenHash)
 
             if (!refreshToken || now() >= refreshToken.expires.valueOf()) {
-                throw new perm.AuthorizationError()
+                throw new AuthorizationError()
             }
-            perm.assertPermission(refreshToken.permissions,
-                perm.PERMISSION_ISSUE_ACCESS_TOKEN)
+            assertPermission(refreshToken.permissions,
+                Permission.IssueAccessToken)
 
             const accessToken = await createAccessToken(refreshToken.userId,
                 req.body.client_id, refreshToken.tokenHash)
@@ -277,7 +276,7 @@ const tokenExchange: MiddlewareFunction = async (req, res, next) => {
             })
         }
     } catch (e) {
-        if (e instanceof perm.AuthorizationError) {
+        if (e instanceof AuthorizationError) {
             res.status(400).json({
                 error: "invalid_grant"
             })
@@ -299,7 +298,7 @@ const oauthAuthorization: MiddlewareFunction = async (req, res) => {
         tokenHash: token.hash,
         type: db.AuthorizationType.Token,
         userId: user.id,
-        permissions: perm.PERMISSIONS_OAUTH_AUTHORIZATION,
+        permissions: Permissions.OAUTH_AUTHORIZATION,
         expires: token.expiry
     })
     
@@ -313,14 +312,15 @@ const clientDataJSONSchema = Joi.object({
     challenge: Joi.string().required().base64({ paddingRequired: false, urlSafe: true }),
     origin: Joi.string().required()
 })
-async function calculateSignatureContents(authenticatorData: string, clientDataJSONBase64: string) {
+async function calculateSignatureContents(authenticatorData: string,
+    clientDataJSONBase64: string): Promise<[string, Buffer]> {
     const authenticatorDataBuffer = Buffer.from(authenticatorData, 'base64')
 
     const clientDataBuffer = base64toab(clientDataJSONBase64)
     const clientDataHash = await subtle.digest('SHA-256', clientDataBuffer)
     const clientDataJSON = JSON.parse(clientDataBuffer.toString('utf8'))
     Joi.assert(clientDataJSON, clientDataJSONSchema)
-    const challenge = base64.clean(clientDataJSON.challenge)
+    const challenge = b64clean(clientDataJSON.challenge)
 
     const signatureContents = appendBuffer(authenticatorDataBuffer,
         clientDataHash)
@@ -351,13 +351,13 @@ const generateSessionToken = () => generateToken(64, 86400)
 const generateAuthorizationToken = () => generateHashedToken(32, 600)
 
 const createAPIToken = (user: number, name: string) =>
-    createToken(perm.PERMISSIONS_API_TOKEN, user, name, CLIENT_ID_SELF, null, 64,
+    createToken(Permissions.API_TOKEN, user, name, CLIENT_ID_SELF, null, 64,
         31536000)
 const createRefreshToken = (user: number, clientID: number) =>
-    createToken(perm.PERMISSIONS_REFRESH_TOKEN, user, '', clientID, null, 64,
+    createToken(Permissions.REFRESH_TOKEN, user, '', clientID, null, 64,
         31536000)
 const createAccessToken = (user: number, clientID: number, parentTokenHash: string) =>
-    createToken(perm.PERMISSIONS_ACCESS_TOKEN, user, '', clientID, parentTokenHash,
+    createToken(Permissions.ACCESS_TOKEN, user, '', clientID, parentTokenHash,
         64, 86400)
 
 async function createToken(permissions: Permissions, userId: number, friendlyName: string, clientId: number,
