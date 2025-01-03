@@ -32,10 +32,10 @@ model Passkey {
 
 model Session {
   token           String    @id
-  user            User      @relation(fields: [userId], references: [id])
-  userId          Int
+  user            User?     @relation(fields: [userId], references: [id])
+  userId          Int?
   expires         DateTime
-  challenge       String?
+  challenge       String?   @unique
   challengeExpiry DateTime?
 }
 

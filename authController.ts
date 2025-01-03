@@ -4,7 +4,7 @@ import Joi from 'joi'
 import { AuthenticatedRequest } from './app'
 import { assertUserPermission, Permission, Permissions } from './permissions'
 
-const db = require('./dbController')
+import * as db from './dbController'
 const base64 = require('./base64')
 const perm = require('./permissions')
 
@@ -49,12 +49,11 @@ export const authState: MiddlewareFunction = async (req, res, next) => {
     Joi.assert(oauthToken, authorizationHeaderSchema)
 
     if (sessionToken !== undefined) {
-        const [userID, username, expires] =
-            await db.getSession(sessionToken) || []
-        if (expires !== undefined && now() <= expires) {
+        const session = await db.getUnexpiredSession(sessionToken)
+        if (session && session.user) {
             authReq.user = {
-                id: userID,
-                username: username,
+                id: session.user.id,
+                username: session.user.username,
                 permissions: perm.PERMISSIONS_USER
             }
         } else {
@@ -62,13 +61,12 @@ export const authState: MiddlewareFunction = async (req, res, next) => {
         }
     } else if (oauthToken !== undefined) {
         const oauthTokenHash = await base64Hash(oauthToken.substring(7))
-        const { Id, Username, Permissions, Expires } =
-            await db.getOAuthTokenInfo(oauthTokenHash) || {}
-        if (Expires !== undefined && now() <= Expires) {
+        const oauthTokenInfo = await db.getOAuthToken(oauthTokenHash)
+        if (oauthTokenInfo?.expires !== undefined && now() <= oauthTokenInfo?.expires?.valueOf()) {
             authReq.user = {
-                id: Id,
-                username: Username,
-                permissions: Permissions
+                id: oauthTokenInfo.userId,
+                username: oauthTokenInfo.user.username,
+                permissions: oauthTokenInfo.permissions
             }
         }
     }
@@ -84,7 +82,11 @@ const registerStart: MiddlewareFunction = async (req, res, next) => {
     let [challenge, challengeExpiry] = generateChallenge()
     
     // TODO: Handle username conflicts gracefully
-    let userID = await db.createNewUser(username, challenge, challengeExpiry)
+    let userID = await db.createNewUser({
+        username,
+        challenge,
+        challengeExpiry
+    })
 
     // Structured per https://developer.mozilla.org/en-US/docs/Web/API/CredentialsContainer/create#publickey_object_structure
     let credentialIssueArgs = {
@@ -116,16 +118,25 @@ const registerFinish: MiddlewareFunction = async (req, res, next) => {
     // TODO: Check that challenge is unexpired and correct
     let [challenge, challengeExpiry] = await db.getUserChallenge(req.body.userID) || []
 
-    await db.savePasskey(req.body.keyID, req.body.userID,
-        req.body.publicKey)
+    await db.savePasskey({
+        id: req.body.keyID,
+        userId: req.body.userID,
+        publicKey: req.body.publicKey
+    })
 
     res.json({}).end()
 }
 
 const loginStart: MiddlewareFunction = async (req, res, next) => {
-    let [challenge, challengeExpiry] = generateChallenge()
+    const [challenge, challengeExpiry] = generateChallenge()
+    const [token, expires] = generateSessionToken()
     
-    await db.saveSessionChallenge(challenge, challengeExpiry)
+    await db.saveSession({
+        token,
+        expires,
+        challenge,
+        challengeExpiry
+    })
     
     // Structured per https://developer.mozilla.org/en-US/docs/Web/API/CredentialsContainer/get#publickey_object_structure
     let credentialGetArgs = {
@@ -148,7 +159,7 @@ const loginFinish: MiddlewareFunction = async (req, res, next) => {
     // Lookup credential
     // { Username, UserId, PublicKey }
     const credential = await db.getPasskey(req.body.keyID)
-    if (credential === undefined) {
+    if (!credential) {
         console.log('Unrecognized credential ID')
         res.status(401).end()
         return
@@ -160,38 +171,29 @@ const loginFinish: MiddlewareFunction = async (req, res, next) => {
         await calculateSignatureContents(req.body.authenticatorData,
             req.body.clientDataJSON)
 
-    const verified = await verify(credential.PublicKey, rawSignature,
+    const verified = await verify(credential.publicKey, rawSignature,
         signatureContents)
     if (!verified) {
         console.log('Signature could not be verified with known public key')
         res.status(401).end()
         return
     }
-    
-    // Lookup pending session entry (ensures that the challenge is valid)
-    const [sessionID, challengeExpiry] = await db.getSessionID(challenge) || []
-    if (sessionID === undefined) {
-        console.log('Invalid challenge')
+
+    // Activate a session by associating it with a user
+    try {
+        const session = await db.instateSessionWithUser(challenge, credential.userId)
+        res.cookie(SESSION_COOKIE_NAME, session.token, {
+            expires: session.expires,
+            httpOnly: true
+        }).json({
+            username: credential.user.username,
+            expires: session.expires
+        })
+    } catch (e) {
+        console.log('Failed to activate session with challenge. Challenge is likely invalid or expired.')
         res.status(401).end()
         return
     }
-    if (now() > challengeExpiry) {
-        console.log('Expired challenge')
-        res.status(401).end()
-        return
-    }
-
-    // Issue a session token
-    const [token, expires] = generateSessionToken()
-    await db.instateSession(token, credential.UserId, expires, sessionID)
-
-    res.cookie(SESSION_COOKIE_NAME, token, {
-        expires: new Date(expires * 1000),
-        httpOnly: true
-    }).json({
-        username: credential.Username,
-        expires: expires
-    })
 }
 
 const logout: MiddlewareFunction = async (req, res, next) => {
@@ -226,22 +228,21 @@ const tokenExchange: MiddlewareFunction = async (req, res, next) => {
     try {
         Joi.assert(req.body, tokenQuerySchema)
         if (req.body.name === undefined) {
-            let refreshTokenHash
+            let refreshTokenHash = ''
             let urlSafeRefreshToken = ''
 
             if (req.body.grant_type == 'authorization_code') {
                 const tokenHash = await base64Hash(req.body.code)
-                // { Type, UserId, Permissions, Expires }
-                const authorization = await db.lookupAuthorization(tokenHash)
+                const authorization = await db.getAuthorization(tokenHash)
                 await db.deleteAuthorization(tokenHash)
         
-                if (authorization === undefined || now() >= authorization.Expires) {
+                if (!authorization || now() >= authorization.expires.valueOf()) {
                     throw new perm.AuthorizationError()
                 }
-                perm.assertPermission(authorization.Permissions,
+                perm.assertPermission(authorization.permissions,
                     perm.PERMISSION_ISSUE_REFRESH_TOKEN)
 
-                const refreshToken = await createRefreshToken(authorization.UserId,
+                const refreshToken = await createRefreshToken(authorization.userId,
                     req.body.client_id)
                 refreshTokenHash = refreshToken.hash
                 urlSafeRefreshToken = base64.b64url(refreshToken.token)
@@ -249,15 +250,16 @@ const tokenExchange: MiddlewareFunction = async (req, res, next) => {
                 refreshTokenHash = await base64Hash(req.body.refresh_token)
             }
 
-            const refreshToken = await db.getOAuthTokenInfo(refreshTokenHash)
+            const refreshToken = await db.getOAuthToken(refreshTokenHash)
 
-            if (refreshToken === undefined || now() >= refreshToken.Expires) {
+            if (!refreshToken || now() >= refreshToken.expires.valueOf()) {
                 throw new perm.AuthorizationError()
             }
-            perm.assertPermission(refreshToken.Permissions, perm.PERMISSION_ISSUE_ACCESS_TOKEN)
+            perm.assertPermission(refreshToken.permissions,
+                perm.PERMISSION_ISSUE_ACCESS_TOKEN)
 
-            const accessToken = await createAccessToken(refreshToken.Id,
-                req.body.client_id, refreshToken.TokenHash)
+            const accessToken = await createAccessToken(refreshToken.userId,
+                req.body.client_id, refreshToken.tokenHash)
 
             res.json({
                 token_type: 'Bearer',
@@ -293,10 +295,13 @@ const oauthAuthorization: MiddlewareFunction = async (req, res) => {
     Joi.assert(req.body, oauthAuthorizationSchema)
     const user = assertUserPermission((req as AuthenticatedRequest).user, Permission.AccountActor)
     const token = await generateAuthorizationToken()
-    await db.instateOneTimeAuthorization(token.hash,
-        db.AUTHORIZATION_TYPE_TOKEN,
-        user.id,
-        perm.PERMISSIONS_OAUTH_AUTHORIZATION)
+    await db.saveAuthorization({
+        tokenHash: token.hash,
+        type: db.AuthorizationType.Token,
+        userId: user.id,
+        permissions: perm.PERMISSIONS_OAUTH_AUTHORIZATION,
+        expires: token.expiry
+    })
     
     res.json({
         code: token.token
@@ -355,11 +360,18 @@ const createAccessToken = (user: number, clientID: number, parentTokenHash: stri
     createToken(perm.PERMISSIONS_ACCESS_TOKEN, user, '', clientID, parentTokenHash,
         64, 86400)
 
-async function createToken(allowedPermissions: Permissions, userID: number, name: string, clientID: number,
+async function createToken(permissions: Permissions, userId: number, friendlyName: string, clientId: number,
     parentTokenHash: string | null, length: number, validFor: number) {
     const token = await generateHashedToken(length, validFor)
-    await db.instateOAuthToken(token.hash, name, clientID, parentTokenHash,
-        userID, allowedPermissions, token.expiry)
+    await db.saveOAuthToken({
+        tokenHash: token.hash,
+        friendlyName,
+        clientId,
+        parentTokenHash,
+        userId,
+        permissions,
+        expires: token.expiry
+    })
     return token
 }
 
@@ -367,10 +379,10 @@ function now() {
     return Math.round(Date.now() / 1000)
 }
 
-function generateToken(len: number, validDuration: number): [string, number] {
+function generateToken(len: number, validDuration: number): [string, Date] {
     let token = globalThis.crypto.getRandomValues(new Uint8Array(len))
     let expires = now() + validDuration
-    return [abtobase64(token), expires]
+    return [abtobase64(token), new Date(expires)]
 }
 
 async function generateHashedToken(len: number, validDuration: number) {
@@ -379,7 +391,7 @@ async function generateHashedToken(len: number, validDuration: number) {
     return {
         token: abtobase64(token),
         hash: abtobase64(tokenHash),
-        expiry: now() + validDuration
+        expiry: new Date(now() + validDuration)
     }
 }
 

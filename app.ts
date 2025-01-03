@@ -4,7 +4,6 @@ import { User } from './models'
 const cookieParser = require('cookie-parser')
 const Joi = require('joi')
 
-const db = require('./dbController')
 import { authState, authRouter } from './authController'
 import { assertUserPermission, Permission } from './permissions'
 import { SmarthomeController } from './smarthomeController'
@@ -17,8 +16,6 @@ const app = express()
 const smarthome = new SmarthomeController(process.env.GARAGE_SOCKET ?? "")
 
 const PORT = process.env.PORT
-
-db.connect(process.env.DB_PATH)
 
 // Error status codes are passed on by Express as the HTTP response status
 Joi.ValidationError.prototype.statusCode = 400
