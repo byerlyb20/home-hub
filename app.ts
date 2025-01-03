@@ -7,7 +7,7 @@ const Joi = require('joi')
 import { authState, authRouter } from './authController'
 import { assertUserPermission, Permission } from './permissions'
 import { SmarthomeController } from './smarthomeController'
-const homegraph = require('./GoogleHomeGraphController')
+import * as homegraph from './GoogleHomeGraphController'
 
 type MiddlewareFunction = (req: Request, res: Response, next: NextFunction) => void
 export type AuthenticatedRequest = Request & { user: (User | null | undefined) }

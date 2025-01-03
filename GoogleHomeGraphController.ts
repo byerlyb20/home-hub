@@ -3,7 +3,7 @@ import { google } from "googleapis"
 import { assertUserPermission, AuthorizationError, Permission } from "./permissions"
 import { AuthenticatedRequest, smarthomeController } from "./app"
 
-const app = smarthome()
+export const app = smarthome()
 
 const homegraphClient = google.homegraph({
     version: 'v1',
@@ -12,7 +12,7 @@ const homegraphClient = google.homegraph({
     })
 })
 
-const requestSyncForUser = (userId: string) => homegraphClient.devices.requestSync({
+export const requestSyncForUser = (userId: string) => homegraphClient.devices.requestSync({
     requestBody: {
         agentUserId: userId,
         async: false
@@ -164,8 +164,3 @@ app.onExecute(async (body, headers, metadata) => {
         }
     }
 })
-
-module.exports = {
-    app,
-    requestSyncForUser
-}

@@ -2,7 +2,7 @@
   "name": "hub_server",
   "version": "1.0.0",
   "description": "web server for a (very) primitive Raspberry Pi IoT controller",
-  "main": "app.js",
+  "main": "app.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },

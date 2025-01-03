@@ -69,17 +69,31 @@ export const deleteSession = (token: string) =>
 export const saveOAuthToken = (token: NewToken) =>
     prisma.token.create({ data: { ...token } })
 
-export const getOAuthToken = (tokenHash: string) =>
+export const getUnexpiredOAuthToken = (tokenHash: string) => 
     prisma.token.findUnique({
-        where: { tokenHash },
+        where: {
+            tokenHash,
+            expires: {
+                gt: new Date()
+            }
+        },
         include: { user: true }
     })
 
 export const saveAuthorization = (authorization: Authorization) =>
     prisma.authorization.create({ data: { ...authorization } })
 
-export const getAuthorization = (tokenHash: string) =>
-    prisma.authorization.findUnique({ where: { tokenHash } })
-
-export const deleteAuthorization = (tokenHash: string) =>
-    prisma.authorization.delete({ where: { tokenHash } })
+export const popUnexpiredAuthorization = (tokenHash: string) => {
+    try {
+        return prisma.authorization.delete({
+            where: {
+                tokenHash,
+                expires: {
+                    gt: new Date()
+                }
+            }
+        })
+    } catch (e) {
+        return null
+    }
+}
