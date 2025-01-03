@@ -348,10 +348,10 @@ const generateAuthorizationToken = () => generateHashedToken(32, 600)
 
 const createAPIToken = (user: number, name: string) =>
     createToken(Permissions.API_TOKEN, user, name, CLIENT_ID_SELF, null, 64,
-        31536000)
+        94608000)
 const createRefreshToken = (user: number, clientID: number) =>
     createToken(Permissions.REFRESH_TOKEN, user, '', clientID, null, 64,
-        31536000)
+        94608000)
 const createAccessToken = (user: number, clientID: number, parentTokenHash: string) =>
     createToken(Permissions.ACCESS_TOKEN, user, '', clientID, parentTokenHash,
         64, 86400)
