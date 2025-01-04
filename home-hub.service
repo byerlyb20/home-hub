@@ -1,0 +1,15 @@
+[Unit]
+Description=node HTTP server for home hub
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=/home/raspberrypi/home-hub
+Type=simple
+Restart=always
+RestartSec=1
+User=raspberrypi
+ExecStart=bun app.ts
+
+[Install]
+WantedBy=multi-user.target

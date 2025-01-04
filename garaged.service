@@ -1,0 +1,13 @@
+[Unit]
+Description=garage door GPIO controller daemon
+After=ngrok.service
+StartLimitIntervalSec=0
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=raspberrypi
+ExecStart=python /home/raspberrypi/home-hub/garage/garaged.py
+
+[Install]
+WantedBy=multi-user.target
